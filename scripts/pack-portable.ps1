@@ -1,0 +1,50 @@
+﻿# 生成绿色便携包（推荐分发方式）：
+#   dist\AppForge-portable.zip -> 解压到任意目录，双击 AppForge.exe 即可
+# 为什么推荐：不涉及自解压/追加数据，杀毒软件与 SmartScreen 误判概率最低
+param([string]$Config = "Release")
+
+$ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot
+$hostProj = Join-Path $root "src\AppForge.Host\AppForge.Host.csproj"
+
+Write-Host "== 构建宿主 ==" -ForegroundColor Cyan
+& dotnet build $hostProj -c $Config --nologo -v q
+if ($LASTEXITCODE -ne 0) { throw "构建失败" }
+
+$hostOut = Join-Path $root "src\AppForge.Host\bin\$Config"
+$dist = Join-Path $root "dist"
+if (-not (Test-Path $dist)) { New-Item -ItemType Directory -Force -Path $dist | Out-Null }
+$stage = Join-Path $dist "portable"
+if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+Get-ChildItem $hostOut -File | Where-Object {
+    ($_.Extension -eq '.exe' -or $_.Extension -eq '.dll' -or $_.Extension -eq '.config') -and
+    $_.Name -notlike '*.pdb' -and
+    $_.Name -notlike '*WebView2.Wpf.dll'
+} | Copy-Item -Destination $stage -Force
+
+$runtimes = Join-Path $hostOut "runtimes"
+if (Test-Path $runtimes) { Copy-Item $runtimes $stage -Recurse -Force }
+
+$readmeLines = @(
+    'AppForge 造物台（绿色便携版）',
+    '================================',
+    '',
+    '1. 双击 AppForge.exe 启动（免安装、不需要管理员权限）。',
+    '2. 首次使用：设置 -> 粘贴 API Key -> 保存密钥 -> 测试连接。',
+    '3. 数据默认在 %LOCALAPPDATA%\AppForge；如需便携模式，在 exe 同目录新建 portable.flag 文件。',
+    '4. 详细说明见项目内 docs\06-用户手册.md；已知问题见 docs\07-已知问题与限制.md。',
+    '5. 卸载：先在设置里关闭开机自启，再删除本目录与 %LOCALAPPDATA%\AppForge。'
+)
+$readme = $readmeLines -join [Environment]::NewLine
+Set-Content -Path (Join-Path $stage "使用说明.txt") -Value $readme -Encoding UTF8
+
+$zip = Join-Path $dist "AppForge-portable.zip"
+if (Test-Path $zip) { Remove-Item $zip -Force }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+Remove-Item $stage -Recurse -Force
+
+Write-Host ""
+Write-Host ("便携包已生成：" + $zip + "（" + [math]::Round((Get-Item $zip).Length / 1MB, 2) + " MB）") -ForegroundColor Green

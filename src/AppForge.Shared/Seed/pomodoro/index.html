@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>番茄钟</title>
+<style>
+  :root { --bg:#14161a; --card:#1c1f25; --text:#e8eaed; --muted:#9aa0a6;
+    --work:#f87171; --rest:#4ade80; --line:#2b2f36; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f23; --muted:#6b7280;
+      --work:#ef4444; --rest:#22c55e; --line:#e5e7eb; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:var(--bg); color:var(--text);
+    font:15px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  .wrap { width:320px; text-align:center; }
+  h1 { font-size:18px; margin:0 0 2px; }
+  .mode { color:var(--muted); font-size:13px; margin-bottom:18px; letter-spacing:2px; }
+  .ring { position:relative; width:240px; height:240px; margin:0 auto 22px; }
+  svg { transform:rotate(-90deg); }
+  circle { fill:none; stroke-width:10; }
+  .track { stroke:var(--line); }
+  .bar { stroke:var(--work); stroke-linecap:round; transition:stroke-dashoffset .3s linear, stroke .3s; }
+  .rest .bar { stroke:var(--rest); }
+  .time { position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; font-size:46px; font-weight:600;
+    font-variant-numeric:tabular-nums; letter-spacing:1px; }
+  .time small { font-size:12px; font-weight:400; color:var(--muted); letter-spacing:0;
+    margin-top:6px; }
+  .btns { display:flex; gap:10px; justify-content:center; }
+  button { cursor:pointer; border:1px solid var(--line); border-radius:10px;
+    padding:10px 18px; font-size:14px; background:var(--card); color:var(--text); }
+  #toggle { background:var(--work); border-color:transparent; color:#fff; min-width:96px; }
+  .rest #toggle { background:var(--rest); }
+  .foot { margin-top:20px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body data-app-root>
+  <div class="wrap" id="app">
+    <h1>番茄钟</h1>
+    <div class="mode" id="mode">专注 25 分钟</div>
+
+    <div class="ring" id="ring">
+      <svg width="240" height="240">
+        <circle class="track" cx="120" cy="120" r="106"></circle>
+        <circle class="bar" id="bar" cx="120" cy="120" r="106"></circle>
+      </svg>
+      <div class="time"><span id="clock">25:00</span><small id="hint">点击开始</small></div>
+    </div>
+
+    <div class="btns">
+      <button id="toggle">开始</button>
+      <button id="reset">重置</button>
+    </div>
+
+    <div class="foot">今天已完成 <b id="done">0</b> 轮专注</div>
+  </div>
+
+<script>
+(function () {
+  var WORK = 25 * 60, REST = 5 * 60;
+  var KEY_DONE = 'app:apdemo0002:rounds';
+  var KEY_DAY = 'app:apdemo0002:day';
+
+  var total = WORK, left = WORK, running = false, isRest = false, timer = null;
+  var CIRC = 2 * Math.PI * 106;
+
+  var bar = document.getElementById('bar');
+  var clock = document.getElementById('clock');
+  var modeEl = document.getElementById('mode');
+  var hint = document.getElementById('hint');
+  var app = document.getElementById('app');
+  var doneEl = document.getElementById('done');
+
+  bar.style.strokeDasharray = CIRC;
+  bar.style.strokeDashoffset = 0;
+
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function loadDone() {
+    var d = localStorage.getItem(KEY_DAY), n = parseInt(localStorage.getItem(KEY_DONE) || '0', 10);
+    if (d !== today()) { n = 0; localStorage.setItem(KEY_DAY, today()); localStorage.setItem(KEY_DONE, '0'); }
+    return isNaN(n) ? 0 : n;
+  }
+  function bumpDone() {
+    var n = loadDone() + 1;
+    localStorage.setItem(KEY_DAY, today());
+    localStorage.setItem(KEY_DONE, String(n));
+    doneEl.textContent = n;
+  }
+
+  function fmt(s) {
+    var m = Math.floor(s / 60), sec = s % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+  }
+  function paint() {
+    clock.textContent = fmt(left);
+    var ratio = total === 0 ? 0 : left / total;
+    bar.style.strokeDashoffset = CIRC * (1 - ratio);
+    app.classList.toggle('rest', isRest);
+    modeEl.textContent = isRest ? '休息 5 分钟' : '专注 25 分钟';
+    document.getElementById('toggle').textContent = running ? '暂停' : (isRest ? '开始休息' : '开始');
+  }
+  function beep() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      var ctx = new Ctx(), osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880; gain.gain.value = 0.15;
+      osc.start(); setTimeout(function () { osc.stop(); ctx.close(); }, 700);
+    } catch (e) { }
+  }
+  function tick() {
+    left--;
+    if (left <= 0) {
+      clearInterval(timer); running = false; beep();
+      if (!isRest) { bumpDone(); isRest = true; total = REST; }
+      else { isRest = false; total = WORK; }
+      left = total; hint.textContent = '本阶段结束';
+    }
+    paint();
+  }
+  function toggle() {
+    if (running) { clearInterval(timer); running = false; hint.textContent = '已暂停'; }
+    else { running = true; hint.textContent = isRest ? '休息中…' : '专注中…'; timer = setInterval(tick, 1000); }
+    paint();
+  }
+  function reset() {
+    clearInterval(timer); running = false; isRest = false; total = WORK; left = WORK;
+    hint.textContent = '点击开始'; paint();
+  }
+
+  document.getElementById('toggle').addEventListener('click', toggle);
+  document.getElementById('reset').addEventListener('click', reset);
+  document.addEventListener('keydown', function (e) {
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+  });
+
+  doneEl.textContent = loadDone();
+  paint();
+})();
+</script>
+</body>
+</html>

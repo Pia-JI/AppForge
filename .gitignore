@@ -1,0 +1,31 @@
+# 构建产物
+bin/
+obj/
+publish/
+dist/
+*.user
+*.suo
+.vs/
+
+# 运行时数据与日志（开发期）
+dev-data/
+data/
+logs/
+*.log
+*.dmp
+*.pdb
+
+# 密钥绝不入库
+secrets.dat
+*.key
+.env
+
+# 临时 / 系统文件
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+
+# 工具缓存
+node_modules/
+__pycache__/

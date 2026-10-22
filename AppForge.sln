@@ -1,0 +1,35 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Host", "src\AppForge.Host\AppForge.Host.csproj", "{6A3F2C41-8B7E-4A9D-9C15-2E0B7F1D3A55}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Shared", "src\AppForge.Shared\AppForge.Shared.csproj", "{C81D4E77-2A6B-45E3-8F90-71B5C2D8E4F1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Launcher", "src\AppForge.Launcher\AppForge.Launcher.csproj", "{3D9A7B22-5C41-4E88-A6B0-9F1C4D2E7A63}"
+EndProjectGlobal
+	Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Launcher", "src\AppForge.Launcher\AppForge.Launcher.csproj", "{3D9A7B22-5C41-4E88-A6B0-9F1C4D2E7A63}"
+EndProjectGlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndProject("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Launcher", "src\AppForge.Launcher\AppForge.Launcher.csproj", "{3D9A7B22-5C41-4E88-A6B0-9F1C4D2E7A63}"
+EndProjectGlobalSection
+	Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Launcher", "src\AppForge.Launcher\AppForge.Launcher.csproj", "{3D9A7B22-5C41-4E88-A6B0-9F1C4D2E7A63}"
+EndProjectGlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6A3F2C41-8B7E-4A9D-9C15-2E0B7F1D3A55}.Debug|x64.ActiveCfg = Debug|x64
+		{6A3F2C41-8B7E-4A9D-9C15-2E0B7F1D3A55}.Debug|x64.Build.0 = Debug|x64
+		{6A3F2C41-8B7E-4A9D-9C15-2E0B7F1D3A55}.Release|x64.ActiveCfg = Release|x64
+		{6A3F2C41-8B7E-4A9D-9C15-2E0B7F1D3A55}.Release|x64.Build.0 = Release|x64
+		{C81D4E77-2A6B-45E3-8F90-71B5C2D8E4F1}.Debug|x64.ActiveCfg = Debug|x64
+		{C81D4E77-2A6B-45E3-8F90-71B5C2D8E4F1}.Debug|x64.Build.0 = Debug|x64
+		{C81D4E77-2A6B-45E3-8F90-71B5C2D8E4F1}.Release|x64.ActiveCfg = Release|x64
+		{C81D4E77-2A6B-45E3-8F90-71B5C2D8E4F1}.Release|x64.Build.0 = Release|x64
+	EndProject("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Launcher", "src\AppForge.Launcher\AppForge.Launcher.csproj", "{3D9A7B22-5C41-4E88-A6B0-9F1C4D2E7A63}"
+EndProjectGlobalSection
+	Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Launcher", "src\AppForge.Launcher\AppForge.Launcher.csproj", "{3D9A7B22-5C41-4E88-A6B0-9F1C4D2E7A63}"
+EndProjectGlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndProject("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Launcher", "src\AppForge.Launcher\AppForge.Launcher.csproj", "{3D9A7B22-5C41-4E88-A6B0-9F1C4D2E7A63}"
+EndProjectGlobalSection
+EndProject("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AppForge.Launcher", "src\AppForge.Launcher\AppForge.Launcher.csproj", "{3D9A7B22-5C41-4E88-A6B0-9F1C4D2E7A63}"
+EndProjectGlobal

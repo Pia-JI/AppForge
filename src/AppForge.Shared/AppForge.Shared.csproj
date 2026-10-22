@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <RootNamespace>AppForge.Shared</RootNamespace>
+    <AssemblyName>AppForge.Shared</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 全部来自 .NET Framework 自带，零第三方 -->
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Security" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Seed\**\*" LogicalName="seed/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

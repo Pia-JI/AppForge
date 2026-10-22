@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>AppForge.Launcher</RootNamespace>
+    <AssemblyName>AppForge.Launcher</AssemblyName>
+    <ApplicationManifest>..\AppForge.Host\app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\build\AppForge.ico</ApplicationIcon>
+    <NoWarn>$(NoWarn);CS0168</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 只用 .NET Framework 自带能力：自解压 + 启动 -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+</Project>

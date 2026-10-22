@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>单位换算</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f23; --muted:#6b7280;
+    --line:#e5e7eb; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --card:#1c1f25; --text:#e8eaed; --muted:#9aa0a6;
+      --line:#2b2f36; --accent:#60a5fa; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:22px; background:var(--bg); color:var(--text);
+    font:15px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  .tabs { display:flex; gap:8px; margin-bottom:18px; }
+  .tabs button { cursor:pointer; border:1px solid var(--line); background:transparent;
+    color:var(--muted); border-radius:999px; padding:7px 16px; font-size:14px; }
+  .tabs button.on { background:var(--accent); border-color:transparent; color:#fff; }
+  .row { display:flex; gap:12px; align-items:flex-end; margin-bottom:12px; }
+  .field { flex:1; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  input, select { width:100%; padding:11px 13px; border:1px solid var(--line);
+    border-radius:10px; background:var(--card); color:var(--text); font-size:16px; outline:none; }
+  input:focus, select:focus { border-color:var(--accent); }
+  input[readonly] { background:transparent; font-weight:600; }
+  .eq { text-align:center; color:var(--muted); margin:6px 0 12px; font-size:13px; }
+  .note { color:var(--muted); font-size:12px; margin-top:18px; line-height:1.8; }
+</style>
+</head>
+<body data-app-root>
+  <h1>单位换算</h1>
+
+  <div class="tabs">
+    <button data-cat="length" class="on">长度</button>
+    <button data-cat="weight">重量</button>
+    <button data-cat="temp">温度</button>
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label>从</label>
+      <input id="from" type="number" value="1" step="any" />
+    </div>
+    <div class="field" style="flex:0 0 130px">
+      <label>&nbsp;</label>
+      <select id="fromUnit"></select>
+    </div>
+  </div>
+
+  <div class="eq">=</div>
+
+  <div class="row">
+    <div class="field">
+      <label>到</label>
+      <input id="to" type="number" readonly />
+    </div>
+    <div class="field" style="flex:0 0 130px">
+      <label>&nbsp;</label>
+      <select id="toUnit"></select>
+    </div>
+  </div>
+
+  <div class="note" id="note"></div>
+
+<script>
+(function () {
+  // 相对基准单位（米 / 千克 / 摄氏度）的换算系数
+  var DATA = {
+    length: {
+      label: '长度', base: '米',
+      units: [
+        { k: 'mm', n: '毫米', f: 0.001 }, { k: 'cm', n: '厘米', f: 0.01 },
+        { k: 'm', n: '米', f: 1 }, { k: 'km', n: '千米', f: 1000 },
+        { k: 'in', n: '英寸', f: 0.0254 }, { k: 'ft', n: '英尺', f: 0.3048 },
+        { k: 'mi', n: '英里', f: 1609.344 }
+      ]
+    },
+    weight: {
+      label: '重量', base: '千克',
+      units: [
+        { k: 'g', n: '克', f: 0.001 }, { k: 'kg', n: '千克', f: 1 },
+        { k: 't', n: '吨', f: 1000 }, { k: 'lb', n: '磅', f: 0.45359237 },
+        { k: 'oz', n: '盎司', f: 0.028349523125 }, { k: 'jin', n: '斤', f: 0.5 }
+      ]
+    },
+    temp: {
+      label: '温度', base: '摄氏度',
+      units: [ { k: 'C', n: '摄氏度' }, { k: 'F', n: '华氏度' }, { k: 'K', n: '开尔文' } ]
+    }
+  };
+
+  var cat = 'length';
+  var K = 'app:apdemo0003:last';
+  var from = document.getElementById('from');
+  var to = document.getElementById('to');
+  var fromUnit = document.getElementById('fromUnit');
+  var toUnit = document.getElementById('toUnit');
+  var note = document.getElementById('note');
+
+  function units() { return DATA[cat].units; }
+
+  function convertTemp(v, a, b) {
+    var c;
+    if (a === 'C') c = v;
+    else if (a === 'F') c = (v - 32) * 5 / 9;
+    else c = v - 273.15;
+
+    if (b === 'C') return c;
+    if (b === 'F') return c * 9 / 5 + 32;
+    return c + 273.15;
+  }
+
+  function calc() {
+    var raw = parseFloat(from.value);
+    if (isNaN(raw)) { to.value = ''; return; }
+    var us = units();
+    var a = us.filter(function (u) { return u.k === fromUnit.value; })[0];
+    var b = us.filter(function (u) { return u.k === toUnit.value; })[0];
+    if (!a || !b) { to.value = ''; return; }
+
+    var out;
+    if (cat === 'temp') { out = convertTemp(raw, a.k, b.k); }
+    else { out = raw * a.f / b.f; }
+
+    var rounded = Math.abs(out) >= 1e9 || (Math.abs(out) < 1e-6 && out !== 0)
+      ? out.toExponential(6)
+      : (Math.round(out * 1e8) / 1e8).toString();
+    to.value = rounded;
+    note.textContent = '1 ' + b.n + ' = ' + (
+      cat === 'temp' ? '' : (Math.round((b.f / a.f) * 1e8) / 1e8) + ' ' + a.n
+    );
+  }
+
+  function fillSelects() {
+    var us = units();
+    var keepFrom = fromUnit.value, keepTo = toUnit.value;
+    fromUnit.innerHTML = ''; toUnit.innerHTML = '';
+    us.forEach(function (u) {
+      var o1 = document.createElement('option');
+      o1.value = u.k; o1.textContent = u.n; fromUnit.appendChild(o1);
+      var o2 = document.createElement('option');
+      o2.value = u.k; o2.textContent = u.n; toUnit.appendChild(o2);
+    });
+    fromUnit.value = keepFrom && us.some(function (u) { return u.k === keepFrom; }) ? keepFrom : us[0].k;
+    toUnit.value = keepTo && us.some(function (u) { return u.k === keepTo; }) ? keepTo : us[1].k;
+  }
+
+  function setCat(next) {
+    cat = next;
+    Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-cat') === cat);
+    });
+    fillSelects();
+    from.value = '1';
+    calc();
+    try { localStorage.setItem(K, cat); } catch (e) { }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (b) {
+    b.addEventListener('click', function () { setCat(b.getAttribute('data-cat')); });
+  });
+  [from, fromUnit, toUnit].forEach(function (el) {
+    el.addEventListener('input', calc);
+    el.addEventListener('change', calc);
+  });
+
+  try {
+    var saved = localStorage.getItem(K);
+    if (saved && DATA[saved]) cat = saved;
+  } catch (e) { }
+  setCat(cat);
+})();
+</script>
+</body>
+</html>
