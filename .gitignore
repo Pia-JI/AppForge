@@ -1,4 +1,4 @@
-# 构建产物
+﻿# 构建产物
 bin/
 obj/
 *.user
@@ -17,3 +17,6 @@ dist/
 secrets.dat
 *.key
 .env
+
+# 导出公开版用的本地脱敏替换表（含内部信息，绝不入库）
+export-local.json
