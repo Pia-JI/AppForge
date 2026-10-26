@@ -70,7 +70,28 @@ try {
 Remove-Item $zip -Force
 
 $finalSize = (Get-Item $outExe).Length
+
+# 一次性解除 SmartScreen 的辅助脚本（Windows 对"从网上下载 + 未签名"的程序会拦一次，
+# 程序自身启动时会清掉该标记，这个 cmd 让用户第一下也能绕过并顺手清理）
+$helper = Join-Path $dist "首次运行-点我（解除SmartScreen提示）.cmd"
+$helperLines = @(
+    '@echo off',
+    'setlocal',
+    'set "EXE=%~dp0AppForge.exe"',
+    'if not exist "%EXE%" (',
+    '  echo AppForge.exe not found next to this .cmd file.',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    'rem Clear the "downloaded from the Internet" mark (Zone.Identifier) that makes',
+    'rem Windows SmartScreen show "Windows protected your PC" on every launch.',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path ''%~dp0*'' -Include *.exe,*.dll -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1',
+    'start "" "%EXE%"'
+)
+Set-Content -Path $helper -Value ($helperLines -join "`r`n") -Encoding ASCII
+
 Write-Host ""
 Write-Host ("✅ 单文件已生成：{0}" -f $outExe) -ForegroundColor Green
 Write-Host ("   大小：{0:N2} MB（目标 ≤5MB）" -f ($finalSize / 1MB))
+Write-Host ("   辅助脚本：{0}" -f $helper) -ForegroundColor Gray
 Write-Host "   验证：dist\AppForge.exe --selftest --data-dir=<目录>" -ForegroundColor Gray

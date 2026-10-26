@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -25,6 +25,7 @@ namespace AppForge.Shared
         public const string DepStatusMethod = "dep.status";
         public const string OpenDataDir = "app.openDataDir";
         public const string RevealApp = "fs.reveal";
+        public const string FsList = "fs.list";
         public const string GenStart = "gen.start";
         public const string GenModify = "gen.modify";
         public const string GenCancel = "gen.cancel";
@@ -43,7 +44,7 @@ namespace AppForge.Shared
         {
             Ping, Info, AppsList, AppsGet, AppsRename, AppsPin, AppsDelete, LaunchOpen,
             SettingsGet, SettingsSet, SettingsListModels, SettingsTestModel, SettingsSetApiKey,
-            DepStatusMethod, OpenDataDir, RevealApp, GenStart, GenModify, GenCancel,
+            DepStatusMethod, OpenDataDir, RevealApp, FsList, GenStart, GenModify, GenCancel,
             VersionsList, VersionsRollback, VersionsDiff,
             AppsExport, AppsShortcut, TrashList, TrashRestore, DiagInfo, DiagExport, SystemOpenLogs
         };

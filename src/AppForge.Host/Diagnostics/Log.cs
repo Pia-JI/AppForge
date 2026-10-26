@@ -38,13 +38,43 @@ namespace AppForge.Host.Diagnostics
                     var sb = new StringBuilder();
                     sb.Append(DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)).Append(' ');
                     sb.Append(level).Append(' ').Append(message);
-                    if (ex != null) sb.AppendLine().Append("        ").Append(ex.GetType().Name).Append(": ").Append(ex.Message);
+                    if (ex != null) AppendException(sb, ex);
                     File.AppendAllText(CurrentFile, sb.ToString() + Environment.NewLine, new UTF8Encoding(false));
                 }
                 catch
                 {
                     // 日志失败绝不影响主流程
                 }
+            }
+        }
+
+        /// <summary>
+        /// 写异常详情（含内部异常与调用栈）。排障时只有类型+消息往往不够——
+        /// 例如 WebView2 的 COMException E_UNEXPECTED 必须看栈才知道是哪一步失败的。
+        /// </summary>
+        private static void AppendException(StringBuilder sb, Exception ex)
+        {
+            var current = ex;
+            var depth = 0;
+            while (current != null && depth < 4)
+            {
+                sb.AppendLine().Append("        ")
+                  .Append(depth == 0 ? string.Empty : "→ " )
+                  .Append(current.GetType().Name).Append(": ").Append(current.Message);
+
+                var stack = current.StackTrace;
+                if (!string.IsNullOrEmpty(stack))
+                {
+                    foreach (var line in stack.Split('\n'))
+                    {
+                        var text = line.TrimEnd('\r').Trim();
+                        if (text.Length == 0) continue;
+                        sb.AppendLine().Append("          ").Append(TextUtil.Ellipsis(text, 300));
+                    }
+                }
+
+                current = current.InnerException;
+                depth++;
             }
         }
 

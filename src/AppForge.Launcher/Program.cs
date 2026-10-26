@@ -25,6 +25,18 @@ namespace AppForge.Launcher
             WriteLog("BOOT self=" + (Environment.GetCommandLineArgs()[0]) + " args=" + string.Join(" ", args) + " temp=" + Path.GetTempPath());
             try
             {
+                // 自我解除"来自 Internet"标记：SmartScreen 的「已保护你的电脑 / 发布者未知」
+                // 只对带该标记的未签名程序弹，删掉标记后下次启动就不再提示。
+                try
+                {
+                    var unblocked = AppForge.Shared.MotwCleaner.SelfUnblock();
+                    if (unblocked > 0) WriteLog("MOTW cleared=" + unblocked);
+                }
+                catch
+                {
+                    // 只读目录/受保护位置：解不掉就算了，不能影响启动
+                }
+
                 var selfPath = Assembly.GetExecutingAssembly().Location;
                 if (string.IsNullOrEmpty(selfPath) || !File.Exists(selfPath))
                     selfPath = Process.GetCurrentProcess().MainModule.FileName;

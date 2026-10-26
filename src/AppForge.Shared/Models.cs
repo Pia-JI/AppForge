@@ -1,4 +1,4 @@
-using System;
+﻿﻿using System;
 using System.Collections.Generic;
 
 namespace AppForge.Shared
@@ -20,6 +20,8 @@ namespace AppForge.Shared
         public int WindowX { get; set; }
         public int WindowY { get; set; }
         public string LastOpenAppId { get; set; }
+        /// <summary>设置项结构版本（用于一次性迁移，避免每次启动改写用户显式配置）。</summary>
+        public int SettingsRevision { get; set; }
 
         public static Settings CreateDefault()
         {
@@ -28,7 +30,8 @@ namespace AppForge.Shared
                 BaseUrl = Defaults.BaseUrl,
                 Model = Defaults.Model,
                 Temperature = 0.3,
-                MaxTokens = 8192,
+                MaxTokens = Defaults.MaxTokens,
+                SettingsRevision = Defaults.SettingsRevision,
                 TimeoutSeconds = 180,
                 KeepVersions = 10,
                 FirstRunDone = false,
@@ -91,10 +94,19 @@ namespace AppForge.Shared
 
     public static class Defaults
     {
-        /// <summary>默认网关为占位示例，首次使用需在设置页填写自己的 OpenAI 兼容网关。</summary>
+        /// <summary>默认网关（用户可在设置页修改）。</summary>
         public const string BaseUrl = "https://api.example.com/v1";
-        /// <summary>默认模型为占位示例，可改为任意支持 function calling 的模型。</summary>
+        /// <summary>默认模型（该网关支持 function calling，适合生成软件）。</summary>
         public const string Model = "gpt-4o-mini";
+        /// <summary>
+        /// 单轮输出上限。v1.0.3 起由 8192 提到 16000：8192 会让较大的文件写到一半被截断
+        /// （finish_reason=length），模型只能整份重写，既慢又容易把轮次耗光。
+        /// </summary>
+        public const int MaxTokens = 16000;
+        /// <summary>v1.0.2 及以前的默认输出上限，用于老配置一次性升级。</summary>
+        public const int LegacyMaxTokens = 8192;
+        /// <summary>设置项结构版本：用于"只做一次"的配置迁移（0 = v1.0.2 及以前的设置）。</summary>
+        public const int SettingsRevision = 1;
         public const string ProductName = "AppForge 造物台";
         public const int SchemaVersion = 1;
     }

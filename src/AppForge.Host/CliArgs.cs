@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace AppForge.Host
@@ -10,6 +10,10 @@ namespace AppForge.Host
         public string OpenApp { get; private set; }
         public string SetApiKey { get; private set; }
         public string Generate { get; private set; }
+        /// <summary>--open-folder=<路径>：只测试"打开目录"链路（无界面，输出 JSON）。</summary>
+        public string OpenFolder { get; private set; }
+        /// <summary>--unblock：清除本程序上的"来自 Internet"标记（解决 SmartScreen 反复提示）。</summary>
+        public bool Unblock { get; private set; }
         /// <summary>配合 --gen 使用：对指定应用做增量修改。</summary>
         public string App { get; private set; }
         public bool Bench { get; private set; }
@@ -25,7 +29,7 @@ namespace AppForge.Host
         /// <summary>无窗口的 CLI 模式（不抢单实例锁，便于并行测试）。</summary>
         public bool CliMode
         {
-            get { return Check || Selftest || Bench || Help || CheckModel || ListModels || UiDiag || SetApiKey != null || Generate != null; }
+            get { return Check || Selftest || Bench || Help || CheckModel || ListModels || UiDiag || SetApiKey != null || Generate != null || OpenFolder != null || Unblock; }
         }
 
         public static CliArgs Parse(string[] args)
@@ -66,6 +70,12 @@ namespace AppForge.Host
                         break;
                     case "--app":
                         result.App = value;
+                        break;
+                    case "--open-folder":
+                        result.OpenFolder = value;
+                        break;
+                    case "--unblock":
+                        result.Unblock = true;
                         break;
                     case "--autostart":
                         result.AutoStartLaunch = true;
@@ -108,6 +118,8 @@ namespace AppForge.Host
                 "  --ui-diag            界面自检：启动界面、截图、采集 JS 错误后退出（需桌面会话）",
                 "  --gen=\"<需求>\"        无界面跑一次完整生成（真模型+自测+固化），事件以 JSONL 输出",
                 "  --app=<appId>        与 --gen 同时使用时，表示对已有应用做增量修改",
+                "  --open-folder=<路径> 只测试\"打开目录\"链路（外壳/explorer/rundll32/剪贴板），输出 JSON",
+                "  --unblock            清除本程序的\"来自 Internet\"标记（不再被 SmartScreen 拦）",
                 "  --help               显示本帮助"
             });
         }

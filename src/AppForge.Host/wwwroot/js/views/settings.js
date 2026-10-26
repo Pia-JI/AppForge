@@ -1,5 +1,5 @@
-import { call } from '../rpc.js';
-import { h, clear, toast } from '../dom.js';
+﻿﻿import { call } from '../rpc.js';
+import { h, clear, toast, openFolder } from '../dom.js';
 import { state } from '../app.js';
 
 /** 设置页：模型地址 / API Key / 模型 / 生成参数 / 依赖状态 / 数据目录 / 关于 */
@@ -261,7 +261,7 @@ function modelPanel(settings, data) {
 
   return h('section', { class: 'panel' },
     h('h3', {}, '🔑 模型连接'),
-    h('p', { class: 'hint', text: '首次使用请把 API 地址改成你自己的 OpenAI 兼容网关；API Key 只在保存时写入本机加密文件，界面上永远不回显明文。' }),
+    h('p', { class: 'hint', text: '默认已填好你的网关地址；API Key 只在保存时写入本机加密文件，界面上永远不回显明文。' }),
 
     h('div', { class: 'field' },
       h('label', { text: 'API 地址（Base URL）' }),
@@ -393,7 +393,7 @@ function dataPanel() {
     h('p', { class: 'hint', text: '应用源码、版本快照、对话记录都在这里；可直接复制/备份/迁移。' }),
     h('div', { class: 'field' }, dirInput),
     h('div', { class: 'actions' },
-      h('button', { class: 'btn', text: '打开数据目录', onClick: () => call('app.openDataDir').catch((e) => toast(e.message, 'bad')) })
+      h('button', { class: 'btn', text: '打开数据目录', onClick: () => openFolder('app.openDataDir') })
     )
   );
 }
@@ -539,7 +539,7 @@ function diagPanel(diag) {
     h('div', { class: 'about-line' }, h('b', { text: '开机自启' }), h('span', { text: info.autoStart ? '已开启' : '未开启' })),
     h('div', { class: 'actions' },
       exportBtn,
-      h('button', { class: 'btn', text: '打开日志目录', onClick: () => call('system.openLogs').catch((e) => toast(e.message, 'bad')) })
+      h('button', { class: 'btn', text: '打开日志目录', onClick: () => openFolder('system.openLogs') })
     )
   );
 }

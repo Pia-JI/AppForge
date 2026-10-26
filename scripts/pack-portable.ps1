@@ -32,6 +32,11 @@ $readmeLines = @(
     '================================',
     '',
     '1. 双击 AppForge.exe 启动（免安装、不需要管理员权限）。',
+    '   如果 Windows 弹出「已保护你的电脑 / 发布者未知」（SmartScreen）：',
+    '   · 最快：双击同目录的「首次运行-点我（解除SmartScreen提示）.cmd」；',
+    '   · 或：右键 AppForge.exe → 属性 → 勾选「解除锁定」→ 确定；',
+    '   · 或：命令行执行  AppForge.exe --unblock',
+    '   这是因为程序没有代码签名证书（不是病毒）；解除一次后不再提示。',
     '2. 首次使用：设置 -> 粘贴 API Key -> 保存密钥 -> 测试连接。',
     '3. 数据默认在 %LOCALAPPDATA%\AppForge；如需便携模式，在 exe 同目录新建 portable.flag 文件。',
     '4. 详细说明见项目内 docs\06-用户手册.md；已知问题见 docs\07-已知问题与限制.md。',
@@ -39,6 +44,23 @@ $readmeLines = @(
 )
 $readme = $readmeLines -join [Environment]::NewLine
 Set-Content -Path (Join-Path $stage "使用说明.txt") -Value $readme -Encoding UTF8
+
+# 一次性解除 SmartScreen 的辅助脚本（内容与单文件版一致，ASCII 以免 cmd 编码问题）
+$helperLines = @(
+    '@echo off',
+    'setlocal',
+    'set "EXE=%~dp0AppForge.exe"',
+    'if not exist "%EXE%" (',
+    '  echo AppForge.exe not found next to this .cmd file.',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    'rem Clear the "downloaded from the Internet" mark (Zone.Identifier) that makes',
+    'rem Windows SmartScreen show "Windows protected your PC" on every launch.',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path ''%~dp0*'' -Include *.exe,*.dll -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1',
+    'start "" "%EXE%"'
+)
+Set-Content -Path (Join-Path $stage "首次运行-点我（解除SmartScreen提示）.cmd") -Value ($helperLines -join "`r`n") -Encoding ASCII
 
 $zip = Join-Path $dist "AppForge-portable.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }

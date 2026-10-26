@@ -32,6 +32,9 @@ export async function refreshApps() {
 export async function render() {
   const view = views[state.view] || views.launcher;
 
+  // 离开工作台时停掉计时器（gen 状态保留，切回来还能看到进度）
+  if (view !== Builder) Builder.pauseBuilder();
+
   searchEl.style.display = state.view === 'launcher' ? '' : 'none';
 
   clear(viewEl);
@@ -106,6 +109,20 @@ async function boot() {
   window.addEventListener('hashchange', applyHash);
 
   document.getElementById('btn-new').addEventListener('click', () => {
+    // 已经停在 #/builder 上时 hash 不会变 → 不触发 hashchange，
+    // 必须手动复位 + 重渲染，否则界面会停在上一次的失败/结束状态（issue：新建应用还是旧界面）。
+    const raw = (location.hash || '').replace(/^#\/?/, '');
+    const name = (raw.split('?')[0] || '').trim();
+    const inModify = !!(state.routeQuery && state.routeQuery.app);
+
+    if (name === 'builder' && !inModify) {
+      Builder.resetBuilder();
+      state.view = 'builder';
+      state.routeQuery = {};
+      render();
+      return;
+    }
+
     location.hash = '#/builder';
   });
   document.getElementById('btn-settings').addEventListener('click', () => {
@@ -151,6 +168,11 @@ if (typeof window !== 'undefined') {
     call: call,
     state: state,
     refreshApps: refreshApps,
-    render: render
+    render: render,
+    builder: {
+      reset: Builder.resetBuilder,
+      pause: Builder.pauseBuilder,
+      snapshot: Builder.debugSnapshot
+    }
   };
 }

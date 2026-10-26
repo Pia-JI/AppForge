@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -9,6 +9,11 @@
     <ApplicationIcon>..\..\build\AppForge.ico</ApplicationIcon>
     <NoWarn>$(NoWarn);CS0168</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 复用共享的"解除 Internet 标记"实现（SmartScreen 提示治理） -->
+    <Compile Include="..\AppForge.Shared\MotwCleaner.cs" Link="MotwCleaner.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- 只用 .NET Framework 自带能力：自解压 + 启动 -->

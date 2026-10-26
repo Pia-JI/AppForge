@@ -42,6 +42,15 @@ namespace AppForge.Shared
                 if (_current.KeepVersions <= 0) _current.KeepVersions = def.KeepVersions;
                 if (_current.WindowWidth <= 0) _current.WindowWidth = def.WindowWidth;
                 if (_current.WindowHeight <= 0) _current.WindowHeight = def.WindowHeight;
+
+                // v1.0.3 迁移（只做一次）：旧默认 maxTokens=8192 会把大文件写截断（模型只能整份重写，很慢）。
+                // 用 SettingsRevision 判定，而不是比较数值——否则用户显式把 8192 填回去，每次启动都会被悄悄改掉。
+                if (_current.SettingsRevision < Defaults.SettingsRevision)
+                {
+                    if (_current.MaxTokens == Defaults.LegacyMaxTokens) _current.MaxTokens = def.MaxTokens;
+                    _current.SettingsRevision = Defaults.SettingsRevision;
+                    Save(_current);
+                }
             }
             catch
             {

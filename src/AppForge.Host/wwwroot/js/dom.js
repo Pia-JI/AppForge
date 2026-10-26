@@ -1,5 +1,119 @@
 /** 极简 DOM 工具：h / toast / 对话框 / 时间格式化（不引任何库）。 */
 
+import { call } from './rpc.js';
+
+/**
+ * 打开目录类 RPC 的统一处理。
+ * 宿主返回 ok=false 表示"三种方式都没能叫起资源管理器"（此时宿主已把路径放进了剪贴板），
+ * 这里给一条明确提示，而不是静默失败——更不该让用户看到系统的 explorer.exe 崩溃错误框。
+ */
+export async function openFolder(method, params) {
+  try {
+    const res = await call(method, params);
+    if (res && res.ok === false) {
+      // 系统调不起资源管理器（有些机器上 explorer.exe 直接起不来）→ 在界面里直接看文件列表
+      await folderDialog(res.path || '', res.copied);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    toast(err.message, 'bad');
+    return false;
+  }
+}
+
+/**
+ * 应用内文件列表（只读）。
+ * 用途：这台机器上 explorer.exe 起不来时，"打开目录"退化成在 AppForge 里直接浏览数据目录，
+ * 用户至少能看到应用文件、导出/复制路径，而不是只收到一个系统错误框。
+ */
+export async function folderDialog(startPath, alreadyCopied) {
+  let current = startPath;
+
+  const pathLine = h('div', { class: 'folder-path', text: '加载中…' });
+  const listEl = h('div', { class: 'folder-list' });
+  const upBtn = h('button', { class: 'btn ghost', text: '↑ 上一级' });
+  const copyBtn = h('button', { class: 'btn', text: '复制路径' });
+  const closeBtn = h('button', { class: 'btn primary', text: '关闭' });
+
+  const dialog = h('div', { class: 'dialog dialog-wide' },
+    h('h3', { text: '📁 文件列表' }),
+    h('p', {
+      class: 'hint',
+      text: alreadyCopied
+        ? '这台机器上没法调起资源管理器（explorer.exe 起不来），所以直接在应用里显示。路径已复制到剪贴板。'
+        : '这台机器上没法调起资源管理器（explorer.exe 起不来），所以直接在应用里显示。'
+    }),
+    pathLine,
+    h('div', { class: 'folder-actions' }, upBtn, copyBtn),
+    listEl,
+    h('div', { class: 'dialog-actions' }, closeBtn)
+  );
+
+  const { close } = openOverlay(dialog);
+  closeBtn.addEventListener('click', close);
+
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(current || '');
+      toast('路径已复制', 'good');
+    } catch (err) {
+      toast('复制失败：' + err.message, 'bad');
+    }
+  });
+
+  async function load(target) {
+    listEl.textContent = '';
+    listEl.appendChild(h('p', { class: 'hint', text: '读取中…' }));
+    let data;
+    try {
+      data = await call('fs.list', { path: target });
+    } catch (err) {
+      listEl.textContent = '';
+      listEl.appendChild(h('p', { class: 'hint', text: '打不开这个目录：' + err.message }));
+      return;
+    }
+
+    current = data.path;
+    pathLine.textContent = data.path;
+    upBtn.disabled = !data.parent;
+    listEl.textContent = '';
+
+    const items = data.items || [];
+    if (!items.length) {
+      listEl.appendChild(h('p', { class: 'hint', text: '（空目录）' }));
+      return;
+    }
+
+    items.forEach((item) => {
+      const row = h('button', {
+        class: 'folder-row',
+        onClick: () => {
+          if (item.dir) { load(current.replace(/[\\/]+$/, '') + '\\' + item.name); return; }
+          navigator.clipboard.writeText(current.replace(/[\\/]+$/, '') + '\\' + item.name)
+            .then(() => toast('文件路径已复制', 'good'))
+            .catch(() => { });
+        }
+      },
+        h('span', { class: 'folder-name', text: (item.dir ? '📁 ' : '📄 ') + item.name }),
+        h('span', { class: 'folder-meta', text: item.dir ? '文件夹' : formatBytes(item.size) })
+      );
+      listEl.appendChild(row);
+    });
+  }
+
+  upBtn.addEventListener('click', async () => {
+    try {
+      const data = await call('fs.list', { path: current });
+      if (data.parent) load(data.parent);
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+
+  await load(current);
+}
+
 export function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
 

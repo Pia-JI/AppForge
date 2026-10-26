@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -14,6 +14,12 @@ using AppForge.Host.Runtime;
 
 namespace AppForge.Host.Web
 {
+    /// <summary>
+    /// 打开一个目录。返回 false 表示没能叫起资源管理器；copied 表示是否已把路径放进剪贴板
+    /// （界面据此决定提示文案，不要谎报"已复制"）。
+    /// </summary>
+    public delegate bool OpenFolderHandler(string path, out bool copied);
+
     /// <summary>RPC 方法的具体实现（设置页就是靠这里读写配置与密钥）。</summary>
     public sealed class RpcService
     {
@@ -26,7 +32,7 @@ namespace AppForge.Host.Web
         private readonly TrashService _trash;
         private readonly OpenAiClient _ai;
         private readonly Func<string, IDictionary<string, object>> _openApp;
-        private readonly Action<string> _openFolder;
+        private readonly OpenFolderHandler _openFolder;
         private readonly GenerationEngine _engine;
         private readonly Action<bool> _applyHotkey;
 
@@ -40,7 +46,7 @@ namespace AppForge.Host.Web
             AppRepository repo,
             OpenAiClient ai,
             Func<string, IDictionary<string, object>> openApp,
-            Action<string> openFolder,
+            OpenFolderHandler openFolder,
             GenerationEngine engine,
             Action<bool> applyHotkey)
         {
@@ -87,6 +93,7 @@ namespace AppForge.Host.Web
             Dispatcher.RegisterSync(RpcMethods.DepStatusMethod, DepStatusAll);
             Dispatcher.RegisterSync(RpcMethods.OpenDataDir, OpenDataDir);
             Dispatcher.RegisterSync(RpcMethods.RevealApp, RevealApp);
+            Dispatcher.RegisterSync(RpcMethods.FsList, FsList);
             Dispatcher.RegisterSync(RpcMethods.GenStart, GenStart);
             Dispatcher.RegisterSync(RpcMethods.GenModify, GenModify);
             Dispatcher.RegisterSync(RpcMethods.GenCancel, GenCancel);
@@ -180,8 +187,19 @@ namespace AppForge.Host.Web
 
         private object OpenLogsHandler(IDictionary<string, object> p)
         {
-            _openFolder(_ws.LogsDir);
-            return JsonLite.New();
+            return OpenFolderResult(_ws.LogsDir);
+        }
+
+        /// <summary>打开目录并把结果回给界面：ok=false 时界面提示"路径已复制"而不是静默失败。</summary>
+        private IDictionary<string, object> OpenFolderResult(string path)
+        {
+            bool copied;
+            var opened = _openFolder(path, out copied);
+            var d = JsonLite.New();
+            d["ok"] = opened;
+            d["path"] = path ?? string.Empty;
+            d["copied"] = copied;   // 打不开时路径是否已进剪贴板（界面的提示文案据此调整）
+            return d;
         }
 
         private static string CurrentExePath()
@@ -469,15 +487,64 @@ namespace AppForge.Host.Web
 
         private object OpenDataDir(IDictionary<string, object> p)
         {
-            _openFolder(_ws.Root);
-            return JsonLite.New();
+            return OpenFolderResult(_ws.Root);
         }
 
         private object RevealApp(IDictionary<string, object> p)
         {
             var id = RequireAppId(p);
-            _openFolder(_ws.AppDir(id));
-            return JsonLite.New();
+            return OpenFolderResult(_ws.AppDir(id));
+        }
+
+        /// <summary>
+        /// 列出一个目录的内容（只读，且只能在 AppForge 自己的数据目录内）。
+        /// 用途：某些机器上 explorer.exe 根本起不来（0xC0000142），"打开目录"退化成在界面里直接看文件列表。
+        /// </summary>
+        private object FsList(IDictionary<string, object> p)
+        {
+            var path = JsonLite.Str(p, "path");
+            if (string.IsNullOrWhiteSpace(path)) path = _ws.Root;
+
+            var full = Path.GetFullPath(path);
+            if (!PathGuard.IsWithin(_ws.Root, full))
+                throw new RpcException(ErrorCodes.NotAllowed, "只能查看 AppForge 自己的数据目录");
+            if (!Directory.Exists(full))
+                throw new RpcException(ErrorCodes.NotFound, "目录不存在：" + full);
+
+            var dir = new DirectoryInfo(full);
+            var items = new List<object>();
+
+            foreach (var sub in dir.GetDirectories())
+            {
+                if (items.Count >= 300) break;
+                var d = JsonLite.New();
+                d["name"] = sub.Name;
+                d["dir"] = true;
+                d["size"] = 0;
+                d["mtime"] = sub.LastWriteTimeUtc.Ticks / TimeSpan.TicksPerMillisecond;
+                items.Add(d);
+            }
+
+            foreach (var file in dir.GetFiles())
+            {
+                if (items.Count >= 300) break;
+                var d = JsonLite.New();
+                d["name"] = file.Name;
+                d["dir"] = false;
+                d["size"] = file.Length;
+                d["mtime"] = file.LastWriteTimeUtc.Ticks / TimeSpan.TicksPerMillisecond;
+                items.Add(d);
+            }
+
+            var result = JsonLite.New();
+            result["path"] = full;
+            result["parent"] = string.Equals(full.TrimEnd(Path.DirectorySeparatorChar),
+                Path.GetFullPath(_ws.Root).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                ? null
+                : Path.GetDirectoryName(full);
+            result["items"] = items;
+            result["count"] = items.Count;
+            return result;
         }
 
         // ---------- 助手 ----------

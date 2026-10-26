@@ -1,5 +1,5 @@
 import { call } from '../rpc.js';
-import { h, clear, toast, relativeTime, formatBytes, showMenu, confirmDialog, promptDialog } from '../dom.js';
+import { h, clear, toast, relativeTime, formatBytes, showMenu, confirmDialog, promptDialog, openFolder } from '../dom.js';
 import { state, refreshApps, render as renderCurrentView } from '../app.js';
 
 export async function render(container) {
@@ -152,7 +152,7 @@ async function renameApp(app) {
 
 async function revealApp(app) {
   try {
-    await call('fs.reveal', { id: app.id });
+    await openFolder('fs.reveal', { id: app.id });
   } catch (err) {
     toast(err.message, 'bad');
   }

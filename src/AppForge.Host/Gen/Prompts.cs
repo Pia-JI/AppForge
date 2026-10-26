@@ -22,11 +22,14 @@ namespace AppForge.Host.Gen
                 new[] { "name", "description", "icon" }));
 
             tools.Add(Tool("write_file",
-                "写入（或覆盖）草稿目录里的一个文件。一次只写一个文件，内容必须是完整文件内容。",
+                "写入（或覆盖/追加）草稿目录里的一个文件。一次只写一个文件：append=false 时 content 必须是完整文件内容；" +
+                "单次 content ≤400 行。文件更大的话，请把它拆成多个文件（如 index.html + style.css + app.js），" +
+                "每个文件一次写完——不要用「写一半再追加」的方式拼半个文件。",
                 new Dictionary<string, object>
                 {
                     { "path", Prop("string", "相对路径，例如 index.html 或 app.js") },
-                    { "content", Prop("string", "完整文件内容") }
+                    { "content", Prop("string", "文件内容（append=true 时为追加片段）") },
+                    { "append", Prop("boolean", "是否追加到文件末尾：true=追加（文件不存在则等同新建），false 或不填=覆盖整个文件") }
                 },
                 new[] { "path", "content" }));
 
@@ -41,7 +44,7 @@ namespace AppForge.Host.Gen
                 new string[0]));
 
             tools.Add(Tool("done",
-                "所有文件写完后调用，表示生成完成。",
+                "所有文件写完后调用，表示生成完成。写完最后一个文件的同一轮里立刻调用 done，不要再多等一轮。",
                 new Dictionary<string, object> { { "summary", Prop("string", "一句话说明做了什么") } },
                 new string[0]));
 
@@ -84,18 +87,44 @@ namespace AppForge.Host.Gen
                 "2. 禁止引用任何外部资源（不要 CDN、不要外链图片/字体/脚本）；图标用 emoji 或内联 SVG。",
                 "3. 数据持久化只能用 localStorage，key 必须带前缀：app:<appId>:。",
                 "4. 单文件 ≤ 1200 行、≤ 200KB；整体 ≤ 8 个文件。",
-                "5. 页面必须有 <body data-app-root> 或主容器带 data-app-root 属性；body 里必须有可见内容。",
-                "6. 所有初始化逻辑用 try/catch 包裹；不得抛未捕获异常；DOM 操作前判空。",
-                "7. 界面使用中文；跟随系统深浅色（prefers-color-scheme）；布局适配 900px 宽窗口。",
-                "8. 禁止 eval 远程代码、禁止读写本地文件、禁止后台自启、禁止自动下载可执行文件。",
+                "5. 简单应用要精简：能 250 行内写完就别拆页、别过度设计，优先保证一次写完且可运行。",
+                "6. 每个文件一次写完（≤400 行）；内容多就拆文件：CSS 放 style.css、JS 放 app.js，index.html 里用相对路径引用。" +
+                "不要写「半个文件」，也不要把同一个文件整篇重写两遍。",
+                "7. 页面必须有 <body data-app-root> 或主容器带 data-app-root 属性；body 里必须有可见内容。",
+                "8. 交互逻辑必须真的写出来：按钮要有 JS 事件绑定，数据要读写 localStorage；不能只给静态界面。",
+                "9. 所有初始化逻辑用 try/catch 包裹；不得抛未捕获异常；DOM 操作前判空。",
+                "10. 界面使用中文；跟随系统深浅色（prefers-color-scheme）；布局适配 900px 宽窗口。",
+                "11. 禁止 eval 远程代码、禁止读写本地文件、禁止后台自启、禁止自动下载可执行文件。",
                 "",
                 "【工作方式】",
-                "· 先调用 set_app_info 设置应用名/描述/emoji 图标；",
-                "· 然后用 write_file 逐个写入文件（一次一个，内容完整）；",
+                "· 第一次回复请同时给出 set_app_info 和第一个文件（同一轮多个工具调用），减少往返；",
+                "· 然后用 write_file 逐个写入文件（一次一个，每个文件都是完整内容）；",
+                "· 文件太大就拆成 index.html / style.css / app.js 三个，而不是写骨架再追加；",
                 "· 需要确认时用 read_file / list_files；",
-                "· 全部写完必须调用 done。",
+                "· 最后一个文件写完后，在同一轮立刻调用 done（不要再等一轮）；",
                 "· 只调用工具，不要在正文里贴大段代码。"
             });
+        }
+
+        /// <summary>轮次即将用尽时的收尾提示（final=true 更强制，用在最后一轮）。</summary>
+        public static string WrapUpPrompt(bool final)
+        {
+            if (!final)
+            {
+                return "时间/轮次即将用尽：请立刻收尾——确保 index.html 入口完整可运行，然后调用 done。";
+            }
+            return "这是最后一轮：不要再新开文件，也不要整篇重写大文件。请确保 index.html 入口完整可运行" +
+                   "（必要时用 write_file 写一个精简但可运行的版本），本轮必须调用 done。";
+        }
+
+        /// <summary>响应被输出长度截断后的分段写入引导。</summary>
+        public static string SegmentWritePrompt(string path, int lineLimit)
+        {
+            var target = string.IsNullOrEmpty(path) ? "刚才那个大文件" : path;
+            return "你上一次的 write_file（" + target + "）因为响应被输出长度截断，内容不完整，所以没有写入。请改成：\n" +
+                   "· 把内容拆成多个文件写：index.html（结构）+ style.css（样式）+ app.js（逻辑），每个文件 ≤" + lineLimit + " 行、一次写完；\n" +
+                   "· 每个文件用 write_file（append=false）写完整内容，不要只写一半就停；\n" +
+                   "· 全部写完后再调用 done。不要把同一个大文件整篇重写一遍。";
         }
 
         public static string UserPrompt(string requirement, string appId)

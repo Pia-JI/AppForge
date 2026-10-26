@@ -436,7 +436,7 @@ namespace AppForge.Host
                     seedWs, log, new SettingsStore(seedWs), new SecretsStore(seedWs), seedRepo,
                     new OpenAiClient(new SettingsStore(seedWs), new SecretsStore(seedWs), log),
                     delegate(string id) { return JsonLite.New(); },
-                    delegate(string path) { },
+                    delegate(string path, out bool copied) { copied = false; return false; },
                     null,
                     null);
                 rpc.Dispatcher.RegisterSync("selftest.echo", delegate(IDictionary<string, object> p) { return p; });
@@ -470,6 +470,26 @@ namespace AppForge.Host
                 var genEmpty = rpc.Dispatcher.HandleAsync(
                     "{\"id\":\"6\",\"method\":\"gen.start\",\"params\":{\"prompt\":\"\"}}").GetAwaiter().GetResult();
                 r.Check("RPC gen.start 空需求被拒绝", !JsonLite.Bool(JsonLite.ParseObject(genEmpty), "ok"));
+
+                // 打开目录：宿主打不开资源管理器时，必须如实回 ok=false（界面据此提示并给路径），
+                // 不能"以为成功"——之前正因为如此，用户只能看到一个 explorer.exe 崩溃弹窗。
+                var openRpc = rpc.Dispatcher.HandleAsync("{\"id\":\"7\",\"method\":\"app.openDataDir\"}").GetAwaiter().GetResult();
+                var openObj = JsonLite.ParseObject(openRpc);
+                var openData = JsonLite.Obj(openObj, "data");
+                r.Check("RPC app.openDataDir 如实回报打开结果", JsonLite.Bool(openObj, "ok") &&
+                    openData != null && !JsonLite.Bool(openData, "ok") &&
+                    !string.IsNullOrEmpty(JsonLite.Str(openData, "path")));
+
+                // fs.list：打不开资源管理器时的应用内替代方案，必须能列出数据目录内容且不许越界
+                var listRpc = rpc.Dispatcher.HandleAsync("{\"id\":\"8\",\"method\":\"fs.list\",\"params\":{}}").GetAwaiter().GetResult();
+                var listObj = JsonLite.ParseObject(listRpc);
+                var listData = JsonLite.Obj(listObj, "data");
+                r.Check("RPC fs.list 列出数据目录", JsonLite.Bool(listObj, "ok") &&
+                    listData != null && !string.IsNullOrEmpty(JsonLite.Str(listData, "path")));
+
+                var listEvil = rpc.Dispatcher.HandleAsync(
+                    "{\"id\":\"9\",\"method\":\"fs.list\",\"params\":{\"path\":\"C:\\\\Windows\"}}").GetAwaiter().GetResult();
+                r.Check("RPC fs.list 拒绝越界路径", !JsonLite.Bool(JsonLite.ParseObject(listEvil), "ok"));
 
                 // 12. 版本服务：列表 / 回滚 / 清理
                 var versionRpc = rpc.Dispatcher.HandleAsync(

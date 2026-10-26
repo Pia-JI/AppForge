@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -49,11 +49,41 @@ namespace AppForge.Host
 
         private const string MutexName = "Local\\AppForge.SingleInstance.v1";
 
+        /// <summary>
+        /// --open-folder=&lt;路径&gt;：只验证"打开目录"链路（外壳 → explorer → rundll32 → 剪贴板）。
+        /// 用于在没有桌面会话的机器上排查 0xC0000142 这类环境问题。
+        /// </summary>
+        /// <summary>--unblock：把 exe 及同目录文件的"来自 Internet"标记清掉（SmartScreen 提示治理）。</summary>
+        private static int RunUnblock(Diagnostics.Log log, int alreadyCleared)
+        {
+            var count = alreadyCleared + MotwCleaner.SelfUnblock();
+            log.Info("--unblock 清除标记：" + count + " 个文件");
+            ConsoleBridge.WriteLine("{\"mode\":\"unblock\",\"ok\":true,\"cleared\":" + count + "}");
+            return 0;
+        }
+
+        private static int RunOpenFolder(string path, Diagnostics.Log log)
+        {
+            bool copied;
+            var opened = Windows.FolderOpener.Open(path, out copied, log.Warn);
+            var json = "{\"mode\":\"open-folder\",\"ok\":" + (opened ? "true" : "false") +
+                       ",\"copied\":" + (copied ? "true" : "false") +
+                       ",\"path\":\"" + (path ?? string.Empty).Replace("\\", "/").Replace("\"", "'") + "\"}";
+            ConsoleBridge.WriteLine(json);
+            return opened ? 0 : 2;
+        }
+
         [STAThread]
         private static int Main(string[] args)
         {
             var cli = CliArgs.Parse(args);
             if (cli.CliMode) ConsoleBridge.Ensure();
+
+            // 所有模式都关掉系统级硬错误弹窗（子进程 0xC0000142 之类只留退出码，不再弹框）
+            ProcessErrorMode.Apply();
+
+            // 自我解除"来自 Internet"标记：带该标记的未签名程序每次启动都会被 SmartScreen 拦一下
+            var unblocked = MotwCleaner.SelfUnblock();
 
             if (cli.Help)
             {
@@ -122,6 +152,7 @@ namespace AppForge.Host
 
                 var log = new Log(workspace.LogsDir);
                 if (fallbackUsed) log.Warn("默认数据目录不可写，已回退到：" + workspace.Root);
+                if (unblocked > 0) log.Info("已清除 " + unblocked + " 个文件的「来自 Internet」标记（SmartScreen 不再提示）");
                 log.Info("AppForge 启动，数据目录：" + workspace.Root + "，参数：" + CliArgs.MaskSecrets(args));
 
                 if (cli.Check) return CliRunner.RunCheck(workspace, log);
@@ -132,6 +163,8 @@ namespace AppForge.Host
                 if (cli.CheckModel) return CliRunner.RunCheckModel(workspace, log);
                 if (cli.UiDiag) return CliRunner.RunUiDiag(workspace, log);
                 if (cli.Generate != null) return CliGen.Run(workspace, log, cli.Generate, cli.App);
+                if (cli.OpenFolder != null) return RunOpenFolder(cli.OpenFolder, log);
+                if (cli.Unblock) return RunUnblock(log, unblocked);
 
                 // ---- 依赖自检（FR-0.4）----
                 var deps = StartupChecks.RunAll(workspace);
@@ -169,6 +202,9 @@ namespace AppForge.Host
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
+                // 关掉系统级硬错误弹窗（如子进程 explorer.exe 起不来时的 0xc0000142 提示框），
+                // 失败改由我们自己的日志 + 界面提示呈现。
+                ProcessErrorMode.Apply();
                 Application.ThreadException += delegate(object s, ThreadExceptionEventArgs e)
                 {
                     log.Error("UI 线程未捕获异常", e.Exception);
