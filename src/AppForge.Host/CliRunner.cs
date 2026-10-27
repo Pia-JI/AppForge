@@ -8,6 +8,7 @@ using System.Windows.Forms;
 using AppForge.Host.Ai;
 using AppForge.Host.Bootstrap;
 using AppForge.Host.Diagnostics;
+using AppForge.Host.Gen;
 using AppForge.Host.Web;
 using AppForge.Host.Runtime;
 using AppForge.Host.Windows;
@@ -33,6 +34,9 @@ namespace AppForge.Host
             result["version"] = RpcService.Version;
             result["dataDir"] = ws.Root;
             result["portable"] = ws.Portable;
+            // 数据目录候选位置的逐个探测结果（"路径 → ok" / "路径 → 被拒绝的原因"），
+            // 用来定位"为什么我的数据目录不可写"到底卡在哪一层。
+            result["dataProbe"] = Program.DataDirProbeLog.ToList();
             result["deps"] = deps.Select(d => (object)d.ToJson()).ToList();
 
             ConsoleBridge.WriteLine(JsonLite.Serialize(result));
@@ -316,12 +320,48 @@ namespace AppForge.Host
                 typeof(SeedData).Assembly.GetManifestResourceNames()
                     .Any(n => n.Replace('\\', '/').EndsWith("seed/todo/index.html", StringComparison.OrdinalIgnoreCase)));
 
-            // 独立的临时工作区，避免污染真实数据
-            var tempRoot = Path.Combine(Path.GetTempPath(), "appforge-selftest-" + Guid.NewGuid().ToString("N"));
+            // 独立工作区，避免污染真实数据。优先放在已验证可写的真实数据目录下：
+            // 受限机器上 %TEMP% 可能被安全软件/组策略拦截，不能把它当成必然可写。
+            var tempRoot = CreateSelftestRoot(realWs);
+            var previousNoShell = Environment.GetEnvironmentVariable("APPFORGE_NO_SHELL_OPEN");
+            Environment.SetEnvironmentVariable("APPFORGE_NO_SHELL_OPEN", "1");
             try
             {
                 var ws = new Workspace(tempRoot, true);
                 ws.EnsureLayout();
+
+                // 1.2 白屏判定（不启动 WebView2）：小页面不应被误杀，真正空白/图形页面要能区分
+                r.Check("白屏判定不误杀小页面", !AppSelfTester.LooksBlank(35, 4, 0));
+                r.Check("白屏判定识别空白页", AppSelfTester.LooksBlank(35, 0, 0));
+                r.Check("白屏判定识别图形页", !AppSelfTester.LooksBlank(50, 0, 1));
+
+                // 1.3 生成完成门槛：没有脚本/缺被引用文件时不能把 done 当成功
+                var completeFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "index.html", "<!doctype html><html><body data-app-root><button id=\"ok\">OK</button><script>document.getElementById('ok').onclick=function(){document.title='ok';};</script></body></html>" }
+                };
+                r.Check("入口完整时允许收尾", GenerationEngine.EntrySelfContained(completeFiles, "index.html"));
+
+                var missingRefFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "index.html", "<!doctype html><html><body data-app-root><script src=\"app.js\"></script></body></html>" }
+                };
+                r.Check("入口缺被引用文件时拒绝收尾", !GenerationEngine.EntrySelfContained(missingRefFiles, "index.html"));
+
+                var staticShellFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "index.html", "<!doctype html><html><body data-app-root><div>只有静态文字</div></body></html>" }
+                };
+                r.Check("入口缺脚本时拒绝收尾", !GenerationEngine.EntrySelfContained(staticShellFiles, "index.html"));
+
+                bool toolboxComplex;
+                var toolboxBudget = GenerationEngine.ComputeRoundBudget("做一个嵌入式工具箱，包含多个小工具", false, out toolboxComplex);
+                r.Check("工具箱需求使用复杂轮次预算", toolboxComplex && toolboxBudget >= 40);
+                r.Check("应用图标已加载", AppIcon.Large != null && AppIcon.Large.Width >= 16);
+                r.Check("生成应用 emoji 图标已加载", AppIcon.ForApp("🧰").Width >= 16);
+                using (var colorIcon = ColorEmojiIcon.Render("🧰"))
+                    r.Check("彩色 emoji 图标可渲染", colorIcon != null && colorIcon.Width >= 16);
+                r.Check("不同 emoji 图标可区分", AppIcon.ForApp("✅") != AppIcon.ForApp("🧰"));
 
                 // 2. 设置读写
                 var settingsStore = new SettingsStore(ws);
@@ -436,7 +476,12 @@ namespace AppForge.Host
                     seedWs, log, new SettingsStore(seedWs), new SecretsStore(seedWs), seedRepo,
                     new OpenAiClient(new SettingsStore(seedWs), new SecretsStore(seedWs), log),
                     delegate(string id) { return JsonLite.New(); },
-                    delegate(string path, out bool copied) { copied = false; return false; },
+                    delegate(string path, out bool copied, out IList<string> stages)
+                    {
+                        copied = false;
+                        stages = new List<string>();
+                        return false;
+                    },
                     null,
                     null);
                 rpc.Dispatcher.RegisterSync("selftest.echo", delegate(IDictionary<string, object> p) { return p; });
@@ -587,9 +632,40 @@ namespace AppForge.Host
             }
             finally
             {
+                Environment.SetEnvironmentVariable("APPFORGE_NO_SHELL_OPEN", previousNoShell);
                 try { if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, true); }
                 catch { /* 忽略 */ }
             }
+        }
+
+        private static string CreateSelftestRoot(Workspace realWs)
+        {
+            var stamp = "selftest-" + Guid.NewGuid().ToString("N");
+            var candidates = new List<string>
+            {
+                Path.Combine(realWs.Root, "." + stamp)
+            };
+            try { candidates.Add(Path.Combine(Path.GetTempPath(), "appforge-" + stamp)); }
+            catch { /* 忽略 */ }
+
+            var errors = new System.Text.StringBuilder();
+            foreach (var root in candidates)
+            {
+                try
+                {
+                    Directory.CreateDirectory(root);
+                    var probe = Path.Combine(root, "write-test-" + Guid.NewGuid().ToString("N") + ".tmp");
+                    File.WriteAllText(probe, "ok");
+                    File.Delete(probe);
+                    return root;
+                }
+                catch (Exception ex)
+                {
+                    errors.AppendLine("  · " + root + " → " + ex.Message);
+                }
+            }
+
+            throw new IOException("找不到可写的自检临时目录：\r\n" + errors);
         }
 
         private static IDictionary<string, object> NewPatch(string key, object value)

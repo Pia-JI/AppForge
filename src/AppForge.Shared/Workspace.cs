@@ -57,6 +57,34 @@ namespace AppForge.Shared
             Directory.CreateDirectory(UiCacheDir);
         }
 
+        /// <summary>
+        /// 真·可写探测：建目录 → **写一个测试文件** → 删掉。
+        ///
+        /// 为什么不能只测 Directory.CreateDirectory：
+        /// 安全软件（火绒/360 的文件保护、Windows Defender 的「受控文件夹访问」）
+        /// 经常**放行"建目录"、拦截"建文件"**。只测建目录会得出"这个目录可用"的错误结论，
+        /// 结果就是程序选了个写不进去的目录，等到第一次保存时才炸——
+        /// 用户看到的是"对路径 xxx\.write-probe 的访问被拒绝"，然后程序直接起不来。
+        ///
+        /// 探测文件名故意不用点开头的隐藏文件（`.write-probe` 这类命名在部分安全软件里更容易被判可疑）。
+        /// </summary>
+        public void ProbeWritable()
+        {
+            EnsureLayout();
+
+            // 文件名带随机后缀：两个入口/两个自检同时探测时不会互相占用同一个文件，
+            // 否则会误报"正由另一进程使用"并把可用目录判成不可写。
+            var probe = Path.Combine(Root, "appforge-write-test-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                File.WriteAllText(probe, "ok", new System.Text.UTF8Encoding(false));
+            }
+            finally
+            {
+                JsonStore.TryDelete(probe);
+            }
+        }
+
         /// <summary>解析数据目录：--data-dir 参数 &gt; 便携模式（exe 同目录 portable.flag）&gt; %LOCALAPPDATA%\AppForge</summary>
         public static Workspace Resolve(string overrideDir, string exeDir)
         {

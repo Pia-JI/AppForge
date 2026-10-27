@@ -4,15 +4,16 @@ import { call } from './rpc.js';
 
 /**
  * 打开目录类 RPC 的统一处理。
- * 宿主返回 ok=false 表示"三种方式都没能叫起资源管理器"（此时宿主已把路径放进了剪贴板），
- * 这里给一条明确提示，而不是静默失败——更不该让用户看到系统的 explorer.exe 崩溃错误框。
+ * 宿主返回 ok=false 表示"系统没有接受打开请求"（多见于安全软件拦截，或精简系统
+ * 限制了资源管理器调用；此时宿主已把路径放进了剪贴板），
+ * 这里给一条明确提示并降级成应用内文件列表，而不是静默失败。
  */
 export async function openFolder(method, params) {
   try {
     const res = await call(method, params);
     if (res && res.ok === false) {
-      // 系统调不起资源管理器（有些机器上 explorer.exe 直接起不来）→ 在界面里直接看文件列表
-      await folderDialog(res.path || '', res.copied);
+      // 系统没接受打开请求（安全软件拦截 / 管理员权限下 shell 拒绝 / 无交互外壳）→ 界面里直接看文件列表
+      await folderDialog(res.path || '', res.copied, res.elevated, res.stages);
       return false;
     }
     return true;
@@ -24,10 +25,11 @@ export async function openFolder(method, params) {
 
 /**
  * 应用内文件列表（只读）。
- * 用途：这台机器上 explorer.exe 起不来时，"打开目录"退化成在 AppForge 里直接浏览数据目录，
+ * 用途：系统调不起资源管理器时，"打开目录"退化成在 AppForge 里直接浏览数据目录，
  * 用户至少能看到应用文件、导出/复制路径，而不是只收到一个系统错误框。
+ * stages 是宿主返回的逐级诊断（HRESULT / Win32 码 / 退出码），折叠展示、可一键复制给开发者。
  */
-export async function folderDialog(startPath, alreadyCopied) {
+export async function folderDialog(startPath, alreadyCopied, elevated, stages) {
   let current = startPath;
 
   const pathLine = h('div', { class: 'folder-path', text: '加载中…' });
@@ -36,17 +38,42 @@ export async function folderDialog(startPath, alreadyCopied) {
   const copyBtn = h('button', { class: 'btn', text: '复制路径' });
   const closeBtn = h('button', { class: 'btn primary', text: '关闭' });
 
+  const hintText = elevated
+    ? 'AppForge 目前以「管理员身份」运行。Windows 不允许管理员进程把打开文件夹的请求交给普通权限的资源管理器，所以这里改成在应用内显示。' +
+      (alreadyCopied ? '路径已复制到剪贴板。' : '') +
+      '想正常用系统资源管理器打开：关掉 AppForge，用普通权限重新启动（不要选「以管理员身份运行」）。'
+    : (alreadyCopied
+      ? '已尝试 6 种方式（ShellExecute / COM 导航 / shell32 / explorer / explorer /e / rundll32），系统都没有真的打开窗口——常见原因是联想电脑管家、火绒、360 等安全软件拦住了资源管理器调用。路径已复制到剪贴板，按 Win+E 打开资源管理器后粘贴到地址栏即可。'
+      : '已尝试 6 种方式（ShellExecute / COM 导航 / shell32 / explorer / explorer /e / rundll32），系统都没有真的打开窗口——常见原因是联想电脑管家、火绒、360 等安全软件拦住了资源管理器调用。');
+
+  // 逐级诊断：给用户一个"能复制给开发者"的入口，也便于自己看是哪一级被拦
+  const diagBox = h('div', { class: 'folder-diag' });
+  if (stages && stages.length) {
+    const pre = h('pre', { class: 'folder-diag-pre', text: stages.join('\n') });
+    const copyDiag = h('button', { class: 'btn ghost sm', text: '复制诊断信息' });
+    copyDiag.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(stages.join('\n'));
+        toast('诊断信息已复制', 'good');
+      } catch (err) {
+        toast('复制失败：' + err.message, 'bad');
+      }
+    });
+    const details = h('details', {},
+      h('summary', { text: '逐级诊断（' + stages.length + ' 行，点开可复制给开发者）' }),
+      pre
+    );
+    diagBox.appendChild(details);
+    diagBox.appendChild(copyDiag);
+  }
+
   const dialog = h('div', { class: 'dialog dialog-wide' },
     h('h3', { text: '📁 文件列表' }),
-    h('p', {
-      class: 'hint',
-      text: alreadyCopied
-        ? '这台机器上没法调起资源管理器（explorer.exe 起不来），所以直接在应用里显示。路径已复制到剪贴板。'
-        : '这台机器上没法调起资源管理器（explorer.exe 起不来），所以直接在应用里显示。'
-    }),
+    h('p', { class: 'hint', text: hintText }),
     pathLine,
     h('div', { class: 'folder-actions' }, upBtn, copyBtn),
     listEl,
+    diagBox,
     h('div', { class: 'dialog-actions' }, closeBtn)
   );
 

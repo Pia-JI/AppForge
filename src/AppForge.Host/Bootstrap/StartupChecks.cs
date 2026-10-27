@@ -108,17 +108,17 @@ namespace AppForge.Host.Bootstrap
             };
             try
             {
-                ws.EnsureLayout();
-                var probe = Path.Combine(ws.Root, ".write-probe");
-                File.WriteAllText(probe, "ok");
-                File.Delete(probe);
+                // 与 Program.EnsureWritableWorkspace 用同一套判据（真写一个文件），
+                // 避免"启动时选了这个目录、检查时又说不可写"的两套标准。
+                ws.ProbeWritable();
                 status.State = "ok";
                 status.Message = ws.Portable ? "便携模式" : "可写";
             }
             catch (Exception ex)
             {
                 status.State = "missing";
-                status.Message = "目录不可写：" + ex.Message;
+                status.Message = "目录不可写：" + ex.Message +
+                                 "（常见原因：火绒/360 的文件保护、Defender 受控文件夹访问把本程序挡在写文件之前）";
             }
             return status;
         }

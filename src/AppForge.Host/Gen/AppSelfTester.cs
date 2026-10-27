@@ -18,6 +18,10 @@ namespace AppForge.Host.Gen
         public bool Pass { get; set; }
         public string Errors { get; set; }
         public int BodyLength { get; set; }
+        /// <summary>页面可见文字长度（已去掉空白），用于区分“HTML 很长但实际白屏”。</summary>
+        public int VisibleTextLength { get; set; }
+        /// <summary>页面上是否有实际占位的 canvas/svg/img/video/iframe。</summary>
+        public int VisualElementCount { get; set; }
         public bool RootFound { get; set; }
         public string Title { get; set; }
         public string Failure { get; set; }
@@ -200,6 +204,12 @@ namespace AppForge.Host.Gen
                 sb.Append(ch);
             }
             return sb.ToString();
+        }
+
+        /// <summary>白屏判定：不能再只靠 innerHTML 长度，小应用可能只有几十个字符。</summary>
+        internal static bool LooksBlank(int bodyLength, int visibleTextLength, int visualElementCount)
+        {
+            return bodyLength < 80 && visibleTextLength == 0 && visualElementCount == 0;
         }
     }
 
@@ -399,13 +409,19 @@ namespace AppForge.Host.Gen
         {
             var probe = await _core.ExecuteScriptAsync(
                 "(function(){var errs=window.__afTestErrors||[];" +
-                "return JSON.stringify({errors:errs.slice(0,12),bodyLen:document.body?document.body.innerHTML.length:0," +
+                "var b=document.body,text=b?(b.innerText||b.textContent||''):'';" +
+                "var visuals=0,nodes=document.querySelectorAll('canvas,svg,img,video,iframe');" +
+                "for(var i=0;i<nodes.length;i++){var el=nodes[i],r=el.getBoundingClientRect(),s=getComputedStyle(el);" +
+                "if(r.width>1&&r.height>1&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0')visuals++;}" +
+                "return JSON.stringify({errors:errs.slice(0,12),bodyLen:b?b.innerHTML.length:0,textLen:text.replace(/\\s+/g,'').length,visuals:visuals," +
                 "root:!!document.querySelector('[data-app-root]'),title:document.title||''});})()");
 
             var text = Unquote(probe);
             var obj = JsonLite.ParseObject(text);
 
             result.BodyLength = JsonLite.Int(obj, "bodyLen");
+            result.VisibleTextLength = JsonLite.Int(obj, "textLen");
+            result.VisualElementCount = JsonLite.Int(obj, "visuals");
             result.RootFound = JsonLite.Bool(obj, "root");
             result.Title = JsonLite.Str(obj, "title");
             var errors = JsonLite.List(obj, "errors");
@@ -423,7 +439,10 @@ namespace AppForge.Host.Gen
             if (string.IsNullOrEmpty(result.Failure) && errorList.Count > 0)
                 result.Failure = "页面有 JS 错误";
 
-            if (string.IsNullOrEmpty(result.Failure) && result.BodyLength < 200)
+            // 小应用可以只有几十个字符，不能按固定 200 字符误判白屏。
+            // 只有“DOM 极小 + 没有可见文字 + 没有可见图形”三者同时成立，才认为是白屏。
+            if (string.IsNullOrEmpty(result.Failure) &&
+                AppSelfTester.LooksBlank(result.BodyLength, result.VisibleTextLength, result.VisualElementCount))
                 result.Failure = "页面内容过少（疑似白屏）";
 
             if (string.IsNullOrEmpty(result.Failure) && !result.RootFound)

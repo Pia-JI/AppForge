@@ -9,7 +9,7 @@
     <Deterministic>true</Deterministic>
     <Company>AppForge</Company>
     <Product>AppForge 造物台</Product>
-    <Version>1.0.5</Version>
+    <Version>1.0.9</Version>
     <NeutralLanguage>zh-Hans</NeutralLanguage>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

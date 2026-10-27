@@ -39,8 +39,10 @@ if (-not (Test-Path $Target)) { New-Item -ItemType Directory -Path $Target -Forc
 Get-ChildItem $Target -Force | Where-Object { $_.Name -ne '.git' -and $_.Name -ne 'LICENSE' } |
     Remove-Item -Recurse -Force
 
-$xd = @('dev-data', 'dist', 'bin', 'obj', '.git', '.vs', 'node_modules', 'publish', 'screenshots')
-$xf = @('*.user', '*.suo', '*.log', 'secrets.dat', '*.pdb', 'export-local.json')
+$xd = @('dev-data', 'data', 'dist', 'bin', 'obj', '.git', '.vs', '.workbuddy',
+        'node_modules', 'publish', 'screenshots', 'logs', 'payload', 'AppForge-payload')
+$xf = @('*.user', '*.suo', '*.log', 'secrets.dat', 'index.json', '*.pdb', '*.pma',
+        'export-local.json', 'appforge-write-test.tmp')
 $args = @($root, $Target, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:1', '/W:1') +
         ($xd | ForEach-Object { '/XD'; $_ }) + ($xf | ForEach-Object { '/XF'; $_ })
 & robocopy @args | Out-Null

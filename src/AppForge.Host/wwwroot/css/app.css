@@ -511,6 +511,40 @@ button, input, select, textarea {
 .dialog .folder-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dialog .folder-meta { color: var(--text-faint); font-size: 12px; white-space: nowrap; }
 
+/* 打开目录失败的逐级诊断（折叠、可复制给开发者） */
+.dialog .folder-diag {
+  margin-top: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dialog .folder-diag details {
+  flex: 1 1 auto;
+  min-width: 240px;
+  background: rgba(120, 130, 150, .08);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.dialog .folder-diag summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-dim);
+  user-select: none;
+}
+.dialog .folder-diag-pre {
+  margin: 8px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-dim);
+}
+
 /* 滚动条 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }

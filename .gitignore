@@ -9,6 +9,9 @@ obj/
 dev-data/
 *.log
 
+# 开发/绿色目录下统一的数据目录（见 Program.FindRepoRoot）
+/data/
+
 # 发布产物
 publish/
 dist/

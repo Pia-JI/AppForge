@@ -24,7 +24,8 @@ namespace AppForge.Host.Gen
             tools.Add(Tool("write_file",
                 "写入（或覆盖/追加）草稿目录里的一个文件。一次只写一个文件：append=false 时 content 必须是完整文件内容；" +
                 "单次 content ≤400 行。文件更大的话，请把它拆成多个文件（如 index.html + style.css + app.js），" +
-                "每个文件一次写完——不要用「写一半再追加」的方式拼半个文件。",
+                "每个文件一次写完——不要用「写一半再追加」的方式拼半个文件。同一轮可以返回多个 write_file 调用，" +
+                "但总输出不要超过单轮上限；短文件可同一轮一起写。",
                 new Dictionary<string, object>
                 {
                     { "path", Prop("string", "相对路径，例如 index.html 或 app.js") },
@@ -44,7 +45,7 @@ namespace AppForge.Host.Gen
                 new string[0]));
 
             tools.Add(Tool("done",
-                "所有文件写完后调用，表示生成完成。写完最后一个文件的同一轮里立刻调用 done，不要再多等一轮。",
+                "所有文件写完、且逐条核对需求都实现后才能调用。写完最后一个文件的同一轮里立刻调用 done，不要再多等一轮。",
                 new Dictionary<string, object> { { "summary", Prop("string", "一句话说明做了什么") } },
                 new string[0]));
 
@@ -83,38 +84,85 @@ namespace AppForge.Host.Gen
                 "你是 AppForge 的应用生成器：根据用户的自然语言需求，现场写出一个可离线运行的网页应用。",
                 "",
                 "【硬性规范】",
-                "1. 默认只写一个 index.html：内联 CSS 与 JS（除非体量确实大才拆成 app.js/style.css，且总文件数 ≤ 8）。",
+                "1. 简单应用（预计 ≤250 行）可以只写一个 index.html；稍复杂的应用一开始就拆成 index.html + style.css + app.js，" +
+                "需要更多模块时再拆 calc.js/tools.js 等，总文件数 ≤ 8。不要先把所有 CSS/JS 都塞进一个巨大的 index.html 再被截断。",
                 "2. 禁止引用任何外部资源（不要 CDN、不要外链图片/字体/脚本）；图标用 emoji 或内联 SVG。",
                 "3. 数据持久化只能用 localStorage，key 必须带前缀：app:<appId>:。",
-                "4. 单文件 ≤ 1200 行、≤ 200KB；整体 ≤ 8 个文件。",
-                "5. 简单应用要精简：能 250 行内写完就别拆页、别过度设计，优先保证一次写完且可运行。",
-                "6. 每个文件一次写完（≤400 行）；内容多就拆文件：CSS 放 style.css、JS 放 app.js，index.html 里用相对路径引用。" +
-                "不要写「半个文件」，也不要把同一个文件整篇重写两遍。",
-                "7. 页面必须有 <body data-app-root> 或主容器带 data-app-root 属性；body 里必须有可见内容。",
-                "8. 交互逻辑必须真的写出来：按钮要有 JS 事件绑定，数据要读写 localStorage；不能只给静态界面。",
-                "9. 所有初始化逻辑用 try/catch 包裹；不得抛未捕获异常；DOM 操作前判空。",
-                "10. 界面使用中文；跟随系统深浅色（prefers-color-scheme）；布局适配 900px 宽窗口。",
-                "11. 禁止 eval 远程代码、禁止读写本地文件、禁止后台自启、禁止自动下载可执行文件。",
+                "4. 单个 write_file 的 content ≤400 行；单文件 ≤1200 行、≤200KB；整体 ≤ 8 个文件。超过就继续拆模块。",
+                "5. 已经正确、且本次不需要改的文件不要重写；不要把同一个文件整篇重写两遍。",
+                "6. 页面必须有 <body data-app-root> 或主容器带 data-app-root 属性；body 里必须有可见内容。",
+                "7. 交互逻辑必须真的写出来：按钮要有 JS 事件绑定，数据要读写 localStorage；不能只给静态界面或占位文字。",
+                "8. 所有初始化逻辑用 try/catch 包裹；不得抛未捕获异常；DOM 操作前判空。",
+                "9. 界面使用中文；跟随系统深浅色（prefers-color-scheme）；布局适配 900px 宽窗口。",
+                "10. 禁止 eval 远程代码、禁止读写本地文件、禁止后台自启、禁止自动下载可执行文件。",
+                "",
+                "【完成标准（必须逐条满足）】",
+                "· set_app_info 的 description 只能写实际已经实现的功能；描述里写到的每个工具/页面/按钮都必须真的能用。",
+                "· 工具箱/多模块应用：每个 tab、每个主要按钮、每个输入控件都必须有真实逻辑，不能只有占位文字。",
+                "· 调 done 前先逐条核对用户需求：缺页面、缺按钮、缺事件、缺持久化、缺本地引用文件，都算未完成。",
+                "· 发现缺功能就继续写，先把功能补齐；不要用“后续可扩展”之类的话代替实现。",
                 "",
                 "【工作方式】",
-                "· 第一次回复请同时给出 set_app_info 和第一个文件（同一轮多个工具调用），减少往返；",
-                "· 然后用 write_file 逐个写入文件（一次一个，每个文件都是完整内容）；",
-                "· 文件太大就拆成 index.html / style.css / app.js 三个，而不是写骨架再追加；",
+                "· 第一次回复同时给出 set_app_info 和第一个文件（同一轮多个工具调用）；第一个文件优先写入口骨架，不要一上来就塞满 400 行；",
+                "· 后续每轮优先写完 1~2 个完整文件；短文件（如 style.css + app.js）可以在同一轮一起写；大文件拆模块，不要用 append 拼半个文件；",
                 "· 需要确认时用 read_file / list_files；",
                 "· 最后一个文件写完后，在同一轮立刻调用 done（不要再等一轮）；",
-                "· 只调用工具，不要在正文里贴大段代码。"
+                "· 只调用工具，不要在正文里贴大段代码；不要反复重写已完成文件。"
             });
         }
 
-        /// <summary>轮次即将用尽时的收尾提示（final=true 更强制，用在最后一轮）。</summary>
-        public static string WrapUpPrompt(bool final)
+        private static string MissingText(IList<string> missing)
         {
-            if (!final)
-            {
-                return "时间/轮次即将用尽：请立刻收尾——确保 index.html 入口完整可运行，然后调用 done。";
-            }
-            return "这是最后一轮：不要再新开文件，也不要整篇重写大文件。请确保 index.html 入口完整可运行" +
-                   "（必要时用 write_file 写一个精简但可运行的版本），本轮必须调用 done。";
+            return missing == null || missing.Count == 0
+                ? string.Empty
+                : "；缺少被引用文件：" + string.Join("、", missing);
+        }
+
+        /// <summary>
+        /// 模型只回复文字、但入口还不完整：继续写，不许把"说完了"当成"做完了"。
+        /// </summary>
+        public static string ContinueIncompletePrompt(string entry, IList<string> missing)
+        {
+            return "现在还不能结束：" + entry + " 尚未达到可运行状态" + MissingText(missing) + "。\n" +
+                   "请继续使用工具完成应用，不要只回复说明文字，也不要调用 done。\n" +
+                   "先 list_files / read_file 检查已有内容，再补齐缺失文件和交互逻辑；全部完成后立即调用 done。";
+        }
+
+        /// <summary>
+        /// 模型过早调用 done：拒绝收尾，明确告诉它还缺什么。
+        /// </summary>
+        public static string DoneRejectedPrompt(string entry, IList<string> missing)
+        {
+            return "done 已拒绝：" + entry + " 还不是完整可运行的应用" + MissingText(missing) + "。\n" +
+                   "入口必须闭合、包含 data-app-root、包含脚本，并且本地引用的 js/css 都必须存在。\n" +
+                   "不要重写已经完成的部分，只补齐缺失内容；补齐后再调用 done。";
+        }
+
+        /// <summary>
+        /// 基础轮次用尽但应用未完成：自动续轮，禁止用"精简版"替换已完成功能。
+        /// </summary>
+        public static string ExtendBudgetPrompt(int extensionNo, int remainingThisExtension, string entry, IList<string> missing)
+        {
+            return "应用尚未完成，轮次预算已自动延长（第 " + extensionNo + " 次，本档还剩 " + remainingThisExtension + " 轮）。\n" +
+                   "当前入口：" + entry + MissingText(missing) + "。\n" +
+                   "禁止收尾、禁止简化功能、禁止把已经写好的大文件整篇重写成精简版。\n" +
+                   "请继续实现尚未完成的需求：缺文件就写文件，缺交互就补脚本；完成后立即调用 done。";
+        }
+
+        /// <summary>
+        /// 文件看起来完整、但模型还没明确 done 时的最后核对。避免把“骨架能打开”误判成完成。
+        /// </summary>
+        public static string CompletionAuditPrompt(string entry)
+        {
+            return "收尾前做一次完整性核对，不要直接结束：\n" +
+                   "1. 逐条对照用户需求，以及应用自己展示的标题、副标题、每个 tab、按钮、输入框和说明文字；\n" +
+                   "   凡是文字里宣称的功能（例如工具数量、导出、筛选、格式化、校验、持久化）都必须有真实实现，不能只有占位按钮或空函数。\n" +
+                   "2. 特别检查：set_app_info 的 description、首页副标题、tab 名称里列出的功能，是否都能在 JS 里找到对应逻辑并真正生效；\n" +
+                   "   例如宣称有 7 个工具却只实现了 4 个，必须补齐剩余 3 个后才能收尾。\n" +
+                   "3. 如果还缺功能，立刻用 write_file 补齐（只改相关文件，不要重写已完成文件），不要只回复文字；\n" +
+                   "4. 如果发现入口引用的本地 js/css 缺失，也先补齐；\n" +
+                   "5. 只有全部实现、且 " + entry + " 可完整运行时，才调用 done。\n" +
+                   "如果确实全部完成，请再次调用 done，并用一句话说明已核对哪些功能；如果刚调用过 done，这一步是必须的复核。";
         }
 
         /// <summary>响应被输出长度截断后的分段写入引导。</summary>
@@ -125,6 +173,18 @@ namespace AppForge.Host.Gen
                    "· 把内容拆成多个文件写：index.html（结构）+ style.css（样式）+ app.js（逻辑），每个文件 ≤" + lineLimit + " 行、一次写完；\n" +
                    "· 每个文件用 write_file（append=false）写完整内容，不要只写一半就停；\n" +
                    "· 全部写完后再调用 done。不要把同一个大文件整篇重写一遍。";
+        }
+
+        /// <summary>
+        /// 入口文件里引用了还没写出来的 js/css：应用一定跑不起来（白屏 / 点击无反应）。
+        /// 这时要明确催模型补齐，而不是当成"原地打转"提前收尾。
+        /// </summary>
+        public static string MissingFilesPrompt(string entry, IList<string> missing)
+        {
+            var list = missing == null || missing.Count == 0 ? "被引用的文件" : string.Join("、", missing);
+            return entry + " 里引用了 " + list + "，但这些文件还没有写出来，应用现在打开会缺资源（白屏或没有交互）。\n" +
+                   "请用 write_file 把它们补齐（每个文件一次写完整），或者把 " + entry + " 里对应的引用去掉。\n" +
+                   "补齐后再调用 done；不要重复重写已经写好的文件。";
         }
 
         public static string UserPrompt(string requirement, string appId)

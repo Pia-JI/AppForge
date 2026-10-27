@@ -47,16 +47,17 @@ namespace AppForge.Host.Gen
         private const int ModifyPerFileLimit = 40000;
         private const int ModifyTotalLimit = 240000;
 
-        // ---- 轮次预算（替代原来的固定 12 轮硬中断）----
-        private const int BaseCodeRounds = 16;        // 新建应用的轮次基数
-        private const int ModifyBaseRounds = 12;      // 修改应用的轮次基数
-        private const int ComplexExtraRounds = 10;    // 复杂需求加成
-        private const int MaxCodeRoundsCap = 40;      // 硬上限（防止无限烧钱）
+        // ---- 轮次预算（只用于防止无限烧钱，不再作为“未写完也收尾”的开关）----
+        private const int BaseCodeRounds = 24;        // 新建应用的轮次基数
+        private const int ModifyBaseRounds = 16;      // 修改应用的轮次基数
+        private const int ComplexExtraRounds = 16;    // 复杂需求加成
+        private const int MaxCodeRoundsCap = 160;     // 安全上限；达到时拒绝保存半成品
+        private const int RoundExtensionSize = 16;    // 未完成时自动续轮，每档 16 轮
         private const int LongPromptChars = 150;      // 需求超过这个字数算复杂需求
 
         // ---- 收尾与上下文控制 ----
-        private const int WrapUpRemainingRounds = 3;  // 剩余轮次 ≤3 时提示收尾
         private const int SingleWriteLineHint = 400;  // 引导模型单次写入的行数上限
+        private const int MaxIdleRounds = 4;          // 复杂需求下入口已完整、连续无变化的最大观察轮数
         private const int ReadFileResultLimit = 4000; // 回给模型的单次读取上限（上下文瘦身）
         private const int SelfTestTimeoutMs = 12000;  // 自测导航超时
 
@@ -64,7 +65,9 @@ namespace AppForge.Host.Gen
         private static readonly string[] ComplexKeywords =
         {
             "多", "图表", "统计", "报表", "导入", "导出", "日历", "看板",
-            "订单", "库存", "多页面", "权限", "搜索", "筛选", "设置"
+            "订单", "库存", "多页面", "权限", "搜索", "筛选", "设置",
+            "工具箱", "助手", "聊天", "画板", "编辑器", "计算器", "游戏",
+            "播放器", "记账", "提醒", "任务", "清单", "转换", "批量"
         };
 
         private readonly Workspace _ws;
@@ -251,7 +254,7 @@ namespace AppForge.Host.Gen
 
                 emit("step", "code", "running", isModify ? "按需求修改代码…" : "生成代码中…", null);
                 var codegen = await CodegenAsync(runId, messages, tools, draftDir, files, meta, tokens, emit, ct,
-                    budget, "code", isModify ? "修改代码中" : "生成代码中");
+                    budget, "code", isModify ? "修改代码中" : "生成代码中", !complex);
 
                 if (!isModify && files.Count == 0)
                     throw new RpcException(ErrorCodes.Upstream,
@@ -289,12 +292,14 @@ namespace AppForge.Host.Gen
 
                 if (codegen.BudgetExhausted)
                 {
-                    // 轮次用尽但已有文件：不报错，用已完成的部分继续自测（用户至少能拿到一个能跑的应用）
-                    _log.Warn("轮次预算用尽：budget=" + budget + "，已用 " + codegen.RoundsUsed +
-                              " 轮，文件=" + files.Count + "，继续自测");
-                    emit("step", "code", "ok",
-                        "达到轮次上限（" + budget + " 轮），用已完成文件继续自测（已生成 " + files.Count + " 个文件：" +
-                        TextUtil.Ellipsis(string.Join("、", files.Keys), 60) + "）", null);
+                    // 安全上限只防无限烧钱，绝不把“轮次到顶”当成完成。
+                    // 模型没有明确收尾时直接拒绝保存，避免再出现“能打开但功能缺一半”的应用。
+                    _log.Warn("达到安全轮次上限且模型未收尾：budget=" + codegen.RoundsUsed +
+                              "，文件=" + files.Count + "，拒绝保存");
+                    throw new RpcException(ErrorCodes.Upstream,
+                        "模型在 " + codegen.RoundsUsed + " 轮内仍未明确完成本次生成（没有调用 done），" +
+                        "本次未保存半成品。请点「继续修改」分步补功能，或把需求拆小后重试；" +
+                        "也可以在设置里换用更稳定的工具调用模型。");
                 }
                 else
                 {
@@ -385,7 +390,7 @@ namespace AppForge.Host.Gen
                         emit("step", "repair", "running", "根据错误自动修复（第 " + (attempt + 1) + " 次）…", null);
                         messages.Add(Msg("user", Prompts.RepairPrompt(appId, ErrorDetails(test), FilesSummary(files))));
                         await CodegenAsync(runId, messages, tools, draftDir, files, meta, tokens, emit, ct,
-                            MaxCodeRoundsPerRepair, "repair", "修复代码中");
+                            MaxCodeRoundsPerRepair, "repair", "修复代码中", false);
                         emit("step", "repair", "ok", "修复完成，重新自测", null);
 
                         entry = PickEntry(files) ?? entry;
@@ -442,7 +447,6 @@ namespace AppForge.Host.Gen
 
                 var noteSuffix = string.Empty;
                 if (degraded) noteSuffix += "（自测环境不可用，已静态校验）";
-                if (codegen.BudgetExhausted) noteSuffix += "（轮次用尽，未显式收尾）";
 
                 _versions.WriteMeta(versionDir, new VersionMeta
                 {
@@ -483,7 +487,6 @@ namespace AppForge.Host.Gen
                 doneExtra["tokensIn"] = tokens.In;
                 doneExtra["tokensOut"] = tokens.Out;
                 if (degraded) doneExtra["degraded"] = true;
-                if (codegen.BudgetExhausted) doneExtra["incomplete"] = true;
                 emit("done", null, null, isModify ? "修改完成" : "生成完成", doneExtra);
 
                 _log.Info((isModify ? "修改成功" : "生成成功") + " appId=" + appId + " v" + seq +
@@ -526,34 +529,23 @@ namespace AppForge.Host.Gen
             CancellationToken ct,
             int maxRounds,
             string stepKey,
-            string phaseLabel)
+            string phaseLabel,
+            bool allowEarlyFinish)
         {
             var result = new CodegenResult();
-            var wrapUpWarned = false;
-            var finalWarned = false;
-            var stalledRounds = 0;   // 连续"只重写已有文件、没有新文件"的轮数
+            var idleRounds = 0;      // 连续"没有内容变化"的轮数（只读、无效写入或原样重写都算）
             var scriptNudged = false; // 是否已提示过"还没有任何脚本"
+            var missingRefNudged = 0; // 已提示过几次"入口引用了还没写的文件"（防止刷屏）
+            var doneRejected = 0;     // 模型过早调用 done、但入口还不完整时，要求继续补齐
+            var extensionCount = 0;   // 基础预算用完后自动续轮的次数
+            var auditRequested = false; // 模型表示结束/文件已稳定后，先做一次需求完整性核对
 
             for (var round = 0; round < maxRounds; round++)
             {
                 ct.ThrowIfCancellationRequested();
 
                 var roundNo = round + 1;
-                var remaining = maxRounds - round;   // 含本轮
-
-                // 收尾提示：剩余 ≤3 轮提示一次，最后一轮再强制提示一次
-                if (remaining <= WrapUpRemainingRounds && remaining > 1 && !wrapUpWarned)
-                {
-                    messages.Add(Msg("user", Prompts.WrapUpPrompt(false)));
-                    wrapUpWarned = true;
-                    emit("log", null, null, "剩余 " + remaining + " 轮，已提示模型收尾并调用 done", null);
-                }
-                if (remaining == 1 && !finalWarned)
-                {
-                    messages.Add(Msg("user", Prompts.WrapUpPrompt(true)));
-                    finalWarned = true;
-                    emit("log", null, null, "最后一轮，已强制提示模型收尾", null);
-                }
+                var auditJustRequested = false; // 本轮刚发出核对请求，不能在同一轮直接收尾
 
                 emit("step", stepKey, "running", phaseLabel + "…（第 " + roundNo + "/" + maxRounds + " 轮）", null);
 
@@ -590,20 +582,47 @@ namespace AppForge.Host.Gen
                 {
                     if (files.Count > 0)
                     {
-                        result.Done = true;
-                        emit("log", null, null, "第 " + roundNo + " 轮完成（" + Seconds(roundWatch) + "s）", null);
-                        break;
+                        var textEntry = PickEntry(files) ?? "index.html";
+                        var textSelfContained = EntrySelfContained(files, textEntry);
+                        var textSaysIncomplete = TextSaysIncomplete(turn.Content);
+
+                        if (textSelfContained && !textSaysIncomplete)
+                        {
+                            if (!auditRequested)
+                            {
+                                auditRequested = true;
+                                auditJustRequested = true;
+                                messages.Add(Msg("user", Prompts.CompletionAuditPrompt(textEntry)));
+                                emit("log", null, null, "模型用文字表示结束，先要求逐条核对需求再收尾", null);
+                                _log.Info("第 " + roundNo + " 轮：模型未调用工具，先触发完成前需求核对");
+                            }
+                            else
+                            {
+                                result.Done = true;
+                                emit("log", null, null, "入口完整、需求核对后模型确认完成，收尾", null);
+                                _log.Info("第 " + roundNo + " 轮：完成前核对通过，代码生成结束");
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            idleRounds++;
+                            messages.Add(Msg("user", Prompts.ContinueIncompletePrompt(textEntry, MissingLocalRefs(files, textEntry))));
+                            emit("log", null, null, "模型只回复了文字，但应用仍未完成，已要求继续补齐", null);
+                            _log.Info("第 " + roundNo + " 轮：模型未调用工具且应用未完成，已要求继续");
+                        }
                     }
-                    messages.Add(Msg("user", "请使用工具完成工作：先 set_app_info，再 write_file 写完整文件，最后调用 done。"));
+                    else
+                    {
+                        messages.Add(Msg("user", "请使用工具完成工作：先 set_app_info，再 write_file 写完整文件，最后调用 done。"));
+                    }
                     emit("log", null, null, "第 " + roundNo + " 轮完成（" + Seconds(roundWatch) + "s）", null);
                     continue;
                 }
 
                 var needSegmentHint = false;
                 var suggestedPath = string.Empty;
-                var wroteNewFile = false;
-                var rewroteExisting = false;
-                var appendedThisRound = false;
+                var contentChanged = false;   // 本轮写进去的内容是否与写之前不同（"真的往前走了"的唯一判据）
 
                 foreach (var call in turn.ToolCalls)
                 {
@@ -634,17 +653,23 @@ namespace AppForge.Host.Gen
                     }
                     else
                     {
-                        var existedBefore = isWrite && !string.IsNullOrEmpty(NormalizePath(TryGetString(call.Arguments, "path"))) &&
-                                            files.ContainsKey(NormalizePath(TryGetString(call.Arguments, "path")));
+                        var writePath = isWrite ? NormalizePath(TryGetString(call.Arguments, "path")) : string.Empty;
+                        var existedBefore = isWrite && !string.IsNullOrEmpty(writePath) && files.ContainsKey(writePath);
+
+                        // 写之前先留一份旧内容：写完逐字节比对，才能区分"真改了"和"又把同一份内容重写了一遍"。
+                        string contentBefore = null;
+                        if (existedBefore) files.TryGetValue(writePath, out contentBefore);
+
                         var outcome = ExecuteTool(call, draftDir, files, meta, emit);
                         output = outcome.Text;
 
                         if (outcome.WroteFile)
                         {
                             result.Written++;
-                            if (outcome.Append) appendedThisRound = true;
-                            if (existedBefore || outcome.Append) rewroteExisting = true;
-                            else wroteNewFile = true;
+                            string contentAfter = null;
+                            files.TryGetValue(string.IsNullOrEmpty(outcome.Path) ? writePath : outcome.Path, out contentAfter);
+                            if (!string.Equals(contentBefore, contentAfter, StringComparison.Ordinal)) contentChanged = true;
+
                             // 上下文瘦身：历史里不再保留整份文件内容，避免后面每轮输入 token 线性膨胀
                             SetToolArguments(assistant, call.Id, SlimWriteArgs(outcome));
                         }
@@ -658,9 +683,62 @@ namespace AppForge.Host.Gen
                     if (string.Equals(name, "done", StringComparison.OrdinalIgnoreCase)) result.Done = true;
                 }
 
+                if (contentChanged) auditRequested = false;
+
                 if (needSegmentHint)
                 {
                     messages.Add(Msg("user", Prompts.SegmentWritePrompt(suggestedPath, SingleWriteLineHint)));
+                }
+
+                var entryName = PickEntry(files) ?? "index.html";
+                var roundTextIncomplete = TextSaysIncomplete(turn.Content);
+
+                // 模型自己还在文字里说“还缺 / 未实现”，即使顺手调用了 done 也不能信。
+                if (result.Done && roundTextIncomplete)
+                {
+                    result.Done = false;
+                    doneRejected++;
+                    messages.Add(Msg("user", Prompts.ContinueIncompletePrompt(
+                        entryName, MissingLocalRefs(files, entryName))));
+                    emit("log", null, null, "模型调用了 done，但说明里仍有未完成项，已拒绝收尾并要求继续", null);
+                    _log.Info("第 " + roundNo + " 轮：done 被拒绝（第 " + doneRejected + " 次），模型文字仍表示未完成");
+                }
+
+                // done 只是"申请收尾"，不是免检通行证：入口缺脚本/缺被引用文件时拒绝收尾。
+                if (result.Done && !EntrySelfContained(files, entryName))
+                {
+                    result.Done = false;
+                    doneRejected++;
+                    var missingForDone = MissingLocalRefs(files, entryName);
+                    messages.Add(Msg("user", Prompts.DoneRejectedPrompt(entryName, missingForDone)));
+                    emit("log", null, null, "模型调用了 done，但入口仍不完整，已拒绝收尾并要求继续", null);
+                    _log.Info("第 " + roundNo + " 轮：done 被拒绝（第 " + doneRejected + " 次），入口不完整");
+                }
+
+                // done 不是免检通行证：哪怕入口结构完整，也要先让模型逐条核对需求，
+                // 避免出现"manifest 宣称 7 个工具、实际只实现 4 个"这种能打开但不能用的半成品。
+                if (result.Done && EntrySelfContained(files, entryName) && !auditRequested)
+                {
+                    result.Done = false;
+                    auditRequested = true;
+                    auditJustRequested = true;
+                    messages.Add(Msg("user", Prompts.CompletionAuditPrompt(entryName)));
+                    emit("log", null, null, "模型调用了 done，收尾前先逐条核对需求是否全部实现", null);
+                    _log.Info("第 " + roundNo + " 轮：done 前触发完成前需求核对");
+                }
+
+                // 入口引用了还没写出来的 js/css：应用一定跑不起来。
+                // 这属于"模型还在补文件"，绝不能当成原地打转提前收尾，先明确催一次补齐。
+                if (!result.Done && files.Count > 0)
+                {
+                    var missingRefs = MissingLocalRefs(files, entryName);
+                    if (missingRefs.Count > 0 && missingRefNudged < 2)
+                    {
+                        missingRefNudged++;
+                        messages.Add(Msg("user", Prompts.MissingFilesPrompt(entryName, missingRefs)));
+                        emit("log", null, null, "入口引用了还没写的文件：" + string.Join("、", missingRefs) + "，已提示模型补齐", null);
+                        _log.Info("第 " + roundNo + " 轮：入口缺被引用文件 " + string.Join("、", missingRefs) + "，已提示补齐");
+                    }
                 }
 
                 // 只有静态界面、没有交互逻辑时不收尾：直接点明"还缺 JS"，让模型补完（只提示一次）
@@ -677,43 +755,62 @@ namespace AppForge.Host.Gen
                 emit("log", null, null, "第 " + roundNo + " 轮完成（" + Seconds(roundWatch) + "s）", null);
                 if (result.Done) break;
 
-                var entryName = PickEntry(files) ?? "index.html";
+                // 收尾判断只看"内容有没有真的变化"：
+                //   · 有任何变化（哪怕还是重写同一个文件）都算在推进，必须让模型继续；
+                //   · 只读、无效写入、原样重写都计入 idle；
+                //   · 入口还引用着没写出来的文件时永不收尾（那是"正在补文件"，不是打转）。
+                // 不再保留"连续两轮重复写就停"的独立分支：它会在复杂应用补功能的阶段误伤，
+                // 而且与下面的 MaxIdleRounds 观察窗口重复。
+                idleRounds = contentChanged ? 0 : idleRounds + 1;
 
-                // 提前收尾①：入口文件已经完整（含脚本）且不依赖任何还没写的本地文件 ——
-                // 模型在这个网关上几乎不会主动调 done，等它下一轮只会多一次整篇重写（20~30 秒）。
-                if (EntrySelfContained(files, entryName))
+                // 入口完整且连续无变化后，也不能立刻收尾：先让模型逐条核对用户需求。
+                // 简单需求观察 1 轮，复杂需求观察 MaxIdleRounds 轮；只有核对过才允许结束。
+                var stableComplete = !roundTextIncomplete &&
+                                     EntrySelfContained(files, entryName) &&
+                                     ((allowEarlyFinish && idleRounds >= 1) ||
+                                      (!allowEarlyFinish && idleRounds >= MaxIdleRounds));
+                if (!result.Done && !auditJustRequested && stableComplete)
                 {
-                    result.Done = true;
-                    result.EarlyFinish = true;
-                    emit("log", null, null, "入口文件已完整可运行，提前收尾（不再等模型调用 done）", null);
-                    _log.Info("第 " + roundNo + " 轮：入口文件已完整且自包含，提前结束代码生成");
-                    break;
-                }
-
-                // 提前收尾②（兜底）：模型把同一个文件整篇重写很多轮（实测连写 16 轮）时，
-                // 只要入口文件已完整就按当前版本继续。追加写入不算原地打转。
-                if (rewroteExisting && !wroteNewFile && !appendedThisRound && EntryLooksComplete(files, entryName))
-                {
-                    stalledRounds++;
-                    if (stalledRounds >= 1)
+                    if (!auditRequested)
+                    {
+                        auditRequested = true;
+                        messages.Add(Msg("user", Prompts.CompletionAuditPrompt(entryName)));
+                        emit("log", null, null, "入口已完整、文件已稳定，先核对一次需求完整性再收尾", null);
+                        _log.Info("第 " + roundNo + " 轮：文件稳定，触发完成前需求核对");
+                    }
+                    else
                     {
                         result.Done = true;
-                        result.StoppedByRewrite = true;
-                        emit("log", null, null, "检测到模型重复重写已有文件，且入口文件已完整——按当前版本继续自测", null);
-                        _log.Warn("第 " + roundNo + " 轮：仅重复重写已有文件，提前结束代码生成");
+                        result.EarlyFinish = true;
+                        emit("log", null, null, "入口完整、需求核对通过，收尾", null);
+                        _log.Info("第 " + roundNo + " 轮：完成前核对通过，提前结束代码生成");
                         break;
                     }
                 }
-                else
+
+                // 基础预算到时还不完整：自动续轮，绝不再用"最后一轮，赶紧精简收尾"逼模型截断功能。
+                if (round + 1 >= maxRounds && files.Count > 0 && maxRounds < MaxCodeRoundsCap)
                 {
-                    stalledRounds = 0;
+                    var previousCap = maxRounds;
+                    maxRounds = Math.Min(MaxCodeRoundsCap, maxRounds + RoundExtensionSize);
+                    extensionCount++;
+                    messages.Add(Msg("user", Prompts.ExtendBudgetPrompt(
+                        extensionCount, maxRounds - round - 1, entryName, MissingLocalRefs(files, entryName))));
+                    emit("log", null, null,
+                        "应用尚未完成，轮次预算由 " + previousCap + " 自动延长到 " + maxRounds +
+                        "（不简化、不强收尾）", null);
+                    _log.Info("第 " + roundNo + " 轮：入口尚未完成，轮次预算 " + previousCap + " → " + maxRounds);
                 }
             }
 
             if (!result.Done && files.Count > 0)
             {
                 result.BudgetExhausted = true;
-                emit("log", null, null, "模型未显式调用 done，按已有文件继续", null);
+                var finalEntry = PickEntry(files) ?? "index.html";
+                result.EntryComplete = EntrySelfContained(files, finalEntry);
+                emit("log", null, null,
+                    "达到最长轮次（" + maxRounds + "），" +
+                    (result.EntryComplete ? "入口结构完整，进入自测" : "入口仍不完整，将拒绝保存半成品"), null);
             }
 
             return result;
@@ -746,9 +843,10 @@ namespace AppForge.Host.Gen
         }
 
         /// <summary>
-        /// 轮次预算：新建 16 轮 / 修改 12 轮；需求超过 150 字或含复杂关键词再加 10 轮；硬上限 40 轮。
+        /// 轮次预算：新建 24 轮 / 修改 16 轮；需求超过 150 字或含复杂关键词再加 16 轮。
+        /// 未完成时每档自动续 16 轮；160 轮只是防无限烧钱的安全上限，不是完成判据。
         /// </summary>
-        private static int ComputeRoundBudget(string prompt, bool isModify, out bool complex)
+        internal static int ComputeRoundBudget(string prompt, bool isModify, out bool complex)
         {
             var budget = isModify ? ModifyBaseRounds : BaseCodeRounds;
             var text = prompt ?? string.Empty;
@@ -777,8 +875,8 @@ namespace AppForge.Host.Gen
             public bool Done;
             public int RoundsUsed;
             public bool BudgetExhausted;
-            /// <summary>因为"模型反复重写已有文件"而提前收尾（不是模型自己调用了 done）。</summary>
-            public bool StoppedByRewrite;
+            /// <summary>达到硬上限时入口是否完整；不完整时上层必须拒绝保存。</summary>
+            public bool EntryComplete;
             /// <summary>入口文件已完整且自包含，主动提前收尾（省掉一次多余的整篇重写）。</summary>
             public bool EarlyFinish;
         }
@@ -1132,21 +1230,69 @@ namespace AppForge.Host.Gen
         }
 
         /// <summary>
+        /// 模型在文字里明确说“还缺/未完成”时，不能把这段文字当成 done。
+        /// 只匹配明确的未完成措辞，避免把“已完成，没有缺少”误判成未完成。
+        /// </summary>
+        private static bool TextSaysIncomplete(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var markers = new[]
+            {
+                "未完成", "尚未完成", "还没完成", "仍未完成",
+                "还缺", "仍缺", "尚未实现", "未实现", "待实现", "待补充",
+                "没有实现", "缺少功能", "占位实现", "TODO:", "FIXME",
+                "not implemented", "still missing", "pending implementation"
+            };
+            foreach (var marker in markers)
+            {
+                var index = 0;
+                while ((index = text.IndexOf(marker, index, StringComparison.OrdinalIgnoreCase)) >= 0)
+                {
+                    // “没有未完成的功能”“不存在未实现项”这类否定句不算未完成；
+                    // 只看标记词前面一小段，避免把整句话里的“没有”错误地套到别的功能上。
+                    var prefixStart = Math.Max(0, index - 8);
+                    var prefix = text.Substring(prefixStart, index - prefixStart);
+                    var negated = prefix.IndexOf("没有", StringComparison.Ordinal) >= 0 ||
+                                  prefix.IndexOf("并无", StringComparison.Ordinal) >= 0 ||
+                                  prefix.IndexOf("不存在", StringComparison.Ordinal) >= 0 ||
+                                  prefix.IndexOf("未发现", StringComparison.Ordinal) >= 0 ||
+                                  prefix.IndexOf("不缺少", StringComparison.Ordinal) >= 0 ||
+                                  prefix.EndsWith("无", StringComparison.Ordinal);
+                    if (!negated) return true;
+                    index += marker.Length;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// 入口文件是否"完整且自包含"：完整（含脚本）+ 它引用的本地 js/css 文件都已经写好。
         /// 用来在模型永远不会主动调 done 的情况下提前收尾，又不至于把多文件应用截成半成品。
         /// </summary>
-        private static bool EntrySelfContained(IDictionary<string, string> files, string entry)
+        internal static bool EntrySelfContained(IDictionary<string, string> files, string entry)
         {
             if (!EntryLooksComplete(files, entry)) return false;
+            return MissingLocalRefs(files, entry).Count == 0;
+        }
 
+        /// <summary>
+        /// 入口文件里引用了、但当前还没写出来的本地 js/css。
+        /// 非空说明应用现在打开会缺资源（白屏 / 交互失效），此时绝不能提前收尾。
+        /// </summary>
+        private static List<string> MissingLocalRefs(IDictionary<string, string> files, string entry)
+        {
+            var missing = new List<string>();
+            if (files == null || files.Count == 0) return missing;
+
+            var path = string.IsNullOrEmpty(entry) ? "index.html" : entry;
             string content;
-            if (!files.TryGetValue(entry, out content) || string.IsNullOrEmpty(content)) return false;
+            if (!files.TryGetValue(path, out content) || string.IsNullOrEmpty(content)) return missing;
 
             foreach (var reference in ExtractLocalReferences(content))
             {
-                if (!files.ContainsKey(reference)) return false;
+                if (!files.ContainsKey(reference) && !missing.Contains(reference)) missing.Add(reference);
             }
-            return true;
+            return missing;
         }
 
         /// <summary>抽出 HTML 里引用的本地资源路径（相对路径；忽略 http(s)/data:/# 等）。</summary>

@@ -14,6 +14,8 @@ namespace AppForge.Host
         public string OpenFolder { get; private set; }
         /// <summary>--unblock：清除本程序上的"来自 Internet"标记（解决 SmartScreen 反复提示）。</summary>
         public bool Unblock { get; private set; }
+        /// <summary>--shell-diag：只测"本进程还能不能创建进程 / 叫起资源管理器"，输出 JSON。</summary>
+        public bool ShellDiag { get; private set; }
         /// <summary>配合 --gen 使用：对指定应用做增量修改。</summary>
         public string App { get; private set; }
         public bool Bench { get; private set; }
@@ -29,7 +31,7 @@ namespace AppForge.Host
         /// <summary>无窗口的 CLI 模式（不抢单实例锁，便于并行测试）。</summary>
         public bool CliMode
         {
-            get { return Check || Selftest || Bench || Help || CheckModel || ListModels || UiDiag || SetApiKey != null || Generate != null || OpenFolder != null || Unblock; }
+            get { return Check || Selftest || Bench || Help || CheckModel || ListModels || UiDiag || SetApiKey != null || Generate != null || OpenFolder != null || Unblock || ShellDiag; }
         }
 
         public static CliArgs Parse(string[] args)
@@ -77,6 +79,9 @@ namespace AppForge.Host
                     case "--unblock":
                         result.Unblock = true;
                         break;
+                    case "--shell-diag":
+                        result.ShellDiag = true;
+                        break;
                     case "--autostart":
                         result.AutoStartLaunch = true;
                         break;
@@ -120,6 +125,7 @@ namespace AppForge.Host
                 "  --app=<appId>        与 --gen 同时使用时，表示对已有应用做增量修改",
                 "  --open-folder=<路径> 只测试\"打开目录\"链路（外壳/explorer/rundll32/剪贴板），输出 JSON",
                 "  --unblock            清除本程序的\"来自 Internet\"标记（不再被 SmartScreen 拦）",
+                "  --shell-diag         诊断\"还能不能创建进程 / 叫起资源管理器\"，输出 JSON",
                 "  --help               显示本帮助"
             });
         }

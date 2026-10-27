@@ -1,5 +1,5 @@
 ﻿﻿import { call } from '../rpc.js';
-import { h, clear, toast, openFolder } from '../dom.js';
+import { h, clear, toast, openFolder, folderDialog } from '../dom.js';
 import { state } from '../app.js';
 
 /** 设置页：模型地址 / API Key / 模型 / 生成参数 / 依赖状态 / 数据目录 / 关于 */
@@ -393,7 +393,8 @@ function dataPanel() {
     h('p', { class: 'hint', text: '应用源码、版本快照、对话记录都在这里；可直接复制/备份/迁移。' }),
     h('div', { class: 'field' }, dirInput),
     h('div', { class: 'actions' },
-      h('button', { class: 'btn', text: '打开数据目录', onClick: () => openFolder('app.openDataDir') })
+      h('button', { class: 'btn', text: '打开数据目录', onClick: () => openFolder('app.openDataDir') }),
+      h('button', { class: 'btn ghost', text: '在应用内浏览', onClick: () => folderDialog(info.dataDir || '') })
     )
   );
 }
@@ -539,7 +540,8 @@ function diagPanel(diag) {
     h('div', { class: 'about-line' }, h('b', { text: '开机自启' }), h('span', { text: info.autoStart ? '已开启' : '未开启' })),
     h('div', { class: 'actions' },
       exportBtn,
-      h('button', { class: 'btn', text: '打开日志目录', onClick: () => openFolder('system.openLogs') })
+      h('button', { class: 'btn', text: '打开日志目录', onClick: () => openFolder('system.openLogs') }),
+      h('button', { class: 'btn ghost', text: '在应用内浏览', onClick: () => folderDialog((state.info && state.info.logsDir) || '') })
     )
   );
 }

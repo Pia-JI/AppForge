@@ -42,7 +42,8 @@ namespace AppForge.Host.Windows
             _log = log;
 
             Text = app.Name;
-            Icon = SystemIcons.Application;
+            // 标题栏与任务栏使用该应用自己的 emoji 图标，和启动台/应用页保持一致。
+            Icon = AppIcon.ForApp(string.IsNullOrWhiteSpace(manifest.Icon) ? app.Icon : manifest.Icon);
             StartPosition = FormStartPosition.CenterParent;
             BackColor = Color.FromArgb(24, 26, 30);
             AutoScaleMode = AutoScaleMode.None; // 尺寸按 DPI 手动换算（manifest 用 CSS 逻辑像素）

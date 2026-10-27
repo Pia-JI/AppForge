@@ -15,10 +15,11 @@ using AppForge.Host.Runtime;
 namespace AppForge.Host.Web
 {
     /// <summary>
-    /// 打开一个目录。返回 false 表示没能叫起资源管理器；copied 表示是否已把路径放进剪贴板
-    /// （界面据此决定提示文案，不要谎报"已复制"）。
+    /// 打开一个目录。返回 false 表示没能真的打开资源管理器；copied 表示是否已把路径放进剪贴板
+    /// （界面据此决定提示文案，不要谎报"已复制"）；stages 是每一级的诊断结果，
+    /// 界面会原样展示，用户反馈问题时可直接复制给开发者。
     /// </summary>
-    public delegate bool OpenFolderHandler(string path, out bool copied);
+    public delegate bool OpenFolderHandler(string path, out bool copied, out IList<string> stages);
 
     /// <summary>RPC 方法的具体实现（设置页就是靠这里读写配置与密钥）。</summary>
     public sealed class RpcService
@@ -91,8 +92,8 @@ namespace AppForge.Host.Web
             Dispatcher.Register(RpcMethods.SettingsListModels, SettingsListModels);
             Dispatcher.Register(RpcMethods.SettingsTestModel, SettingsTestModel);
             Dispatcher.RegisterSync(RpcMethods.DepStatusMethod, DepStatusAll);
-            Dispatcher.RegisterSync(RpcMethods.OpenDataDir, OpenDataDir);
-            Dispatcher.RegisterSync(RpcMethods.RevealApp, RevealApp);
+            Dispatcher.Register(RpcMethods.OpenDataDir, OpenDataDirAsync);
+            Dispatcher.Register(RpcMethods.RevealApp, RevealAppAsync);
             Dispatcher.RegisterSync(RpcMethods.FsList, FsList);
             Dispatcher.RegisterSync(RpcMethods.GenStart, GenStart);
             Dispatcher.RegisterSync(RpcMethods.GenModify, GenModify);
@@ -107,7 +108,7 @@ namespace AppForge.Host.Web
             Dispatcher.RegisterSync(RpcMethods.TrashRestore, TrashRestoreHandler);
             Dispatcher.RegisterSync(RpcMethods.DiagInfo, DiagInfoHandler);
             Dispatcher.RegisterSync(RpcMethods.DiagExport, DiagExportHandler);
-            Dispatcher.RegisterSync(RpcMethods.SystemOpenLogs, OpenLogsHandler);
+            Dispatcher.Register(RpcMethods.SystemOpenLogs, OpenLogsAsync);
         }
 
         // ---------- 导出 / 快捷方式 / 回收站 / 诊断 ----------
@@ -190,15 +191,27 @@ namespace AppForge.Host.Web
             return OpenFolderResult(_ws.LogsDir);
         }
 
+        private Task<object> OpenLogsAsync(IDictionary<string, object> p)
+        {
+            return OpenFolderAsync(_ws.LogsDir);
+        }
+
         /// <summary>打开目录并把结果回给界面：ok=false 时界面提示"路径已复制"而不是静默失败。</summary>
         private IDictionary<string, object> OpenFolderResult(string path)
         {
             bool copied;
-            var opened = _openFolder(path, out copied);
+            IList<string> stages;
+            var opened = _openFolder(path, out copied, out stages);
             var d = JsonLite.New();
             d["ok"] = opened;
             d["path"] = path ?? string.Empty;
             d["copied"] = copied;   // 打不开时路径是否已进剪贴板（界面的提示文案据此调整）
+            // 每一级到底报了什么（HRESULT / Win32 码 / 退出码 / 窗口是否真的出现）：
+            // 界面折叠展示、可一键复制，用户报"打不开"时不用再猜。
+            d["stages"] = stages == null ? new List<string>() : new List<string>(stages);
+            // 以管理员身份运行时 shell 请求会被拒绝（ACCESS_DENIED / 0xC0000142），
+            // 界面据此给出"用普通权限重启"的准确提示，而不是笼统说 explorer 起不来。
+            d["elevated"] = Windows.FolderOpener.IsElevated();
             return d;
         }
 
@@ -326,6 +339,7 @@ namespace AppForge.Host.Web
             d["product"] = Defaults.ProductName;
             d["version"] = Version;
             d["dataDir"] = _ws.Root;
+            d["logsDir"] = _ws.LogsDir;
             d["portable"] = _ws.Portable;
             d["os"] = StartupChecks.OsDescription();
             d["webview2"] = StartupChecks.WebView2Version() ?? "未安装";
@@ -490,10 +504,30 @@ namespace AppForge.Host.Web
             return OpenFolderResult(_ws.Root);
         }
 
+        private Task<object> OpenDataDirAsync(IDictionary<string, object> p)
+        {
+            return OpenFolderAsync(_ws.Root);
+        }
+
         private object RevealApp(IDictionary<string, object> p)
         {
             var id = RequireAppId(p);
             return OpenFolderResult(_ws.AppDir(id));
+        }
+
+        private Task<object> RevealAppAsync(IDictionary<string, object> p)
+        {
+            var path = _ws.AppDir(RequireAppId(p));
+            return OpenFolderAsync(path);
+        }
+
+        /// <summary>
+        /// 打开目录放到线程池里执行：FolderOpener 内部最多会等几轮窗口出现，
+        /// 同步跑在 UI 线程会冻住整个界面。真正的 shell 调用仍由 FolderOpener 切到 STA 线程。
+        /// </summary>
+        private Task<object> OpenFolderAsync(string path)
+        {
+            return Task.Run(delegate { return (object)OpenFolderResult(path); });
         }
 
         /// <summary>

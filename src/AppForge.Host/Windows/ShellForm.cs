@@ -173,7 +173,7 @@ namespace AppForge.Host.Windows
 
             Text = Defaults.ProductName;
             BackColor = Color.FromArgb(22, 24, 28);
-            Icon = SystemIcons.Application;
+            Icon = AppIcon.Large;
             AutoScaleMode = AutoScaleMode.None; // 尺寸由 DpiHelper 手动换算，避免 WinForms 双重缩放
             StartPosition = FormStartPosition.Manual;
 
@@ -244,7 +244,7 @@ namespace AppForge.Host.Windows
 
             _tray = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
+                Icon = AppIcon.Small,
                 Text = Defaults.ProductName,
                 Visible = true
             };
@@ -483,7 +483,7 @@ namespace AppForge.Host.Windows
                 // 模型下拉框可用性验证：写入缓存 → 重渲染设置页 → 模拟选择 → 断言手填框同步
                 await EvalAsync(
                     "(function(){try{localStorage.setItem('af.models'," +
-                    "JSON.stringify(['gpt-4o-mini','deepseek-v4.1-flash','glm-5.3-flash','kimi-k2.7']));}catch(e){}" +
+                    "JSON.stringify(['gpt-4o-mini','gpt-4o-mini','glm-5.3-flash','kimi-k2.7']));}catch(e){}" +
                     "location.hash='#/launcher';return 1;})()");
                 await Task.Delay(500);
                 await EvalAsync("(function(){location.hash='#/settings';return 1;})()");
@@ -658,9 +658,10 @@ namespace AppForge.Host.Windows
         /// 打开目录：交给 FolderOpener（外壳调用 → explorer.exe → rundll32 → 复制路径）。
         /// 打不开时会把路径放进剪贴板并返回 false，由界面提示用户，不再弹系统级错误框。
         /// </summary>
-        private bool OpenFolderInternal(string path, out bool copied)
+        private bool OpenFolderInternal(string path, out bool copied, out IList<string> stages)
         {
-            return FolderOpener.Open(path, out copied, _log.Warn);
+            string verifiedBy;
+            return FolderOpener.Open(path, out copied, out stages, out verifiedBy, _log.Warn);
         }
 
         private void ShowFallback(string message)
