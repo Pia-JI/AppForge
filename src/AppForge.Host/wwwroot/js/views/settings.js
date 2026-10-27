@@ -1,5 +1,5 @@
-﻿﻿import { call } from '../rpc.js';
-import { h, clear, toast, openFolder, folderDialog } from '../dom.js';
+import { call } from '../rpc.js';
+import { h, clear, toast, openFolder, folderDialog, formatBytes } from '../dom.js';
 import { state } from '../app.js';
 
 /** 设置页：模型地址 / API Key / 模型 / 生成参数 / 依赖状态 / 数据目录 / 关于 */

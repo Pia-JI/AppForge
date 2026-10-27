@@ -60,6 +60,37 @@ for (const file of jsFiles) {
   }
 }
 ok('模块 import 路径检查完成');
+// 2.5) 使用 dom.js 导出的辅助函数时必须先 import
+// 之前 settings.js 用了 formatBytes() 却没 import，静态语法检查发现不了，
+// 只有真正打开设置页才报 "formatBytes is not defined"。这里做一次符号级兜底。
+const domFile = join(uiRoot, 'js', 'dom.js');
+const domText = readFileSync(domFile, 'utf8');
+const domExports = [...domText.matchAll(/^export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]);
+let missingImports = 0;
+for (const file of jsFiles) {
+  if (file === domFile) continue;
+  const text = readFileSync(file, 'utf8');
+  const rel = relative(uiRoot, file);
+  const imported = new Set();
+  const importRe = /import\s*\{([^}]*)\}\s*from\s*['"][^'"]*dom\.js['"]/g;
+  let im;
+  while ((im = importRe.exec(text))) {
+    for (const part of im[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/)[0].trim();
+      if (name) imported.add(name);
+    }
+  }
+  for (const name of domExports) {
+    const localRe = new RegExp('(?:^|\\n)\\s*(?:export\\s+)?(?:async\\s+)?function\\s+' + name + '\\b|(?:^|\\n)\\s*(?:export\\s+)?(?:const|let|var)\\s+' + name + '\\b');
+    if (localRe.test(text)) continue;
+    const useRe = new RegExp('(^|[^.\\w$])' + name + '\\s*\\(', 'm');
+    if (useRe.test(text) && !imported.has(name)) {
+      fail(`${rel} 使用了 dom.js 的 ${name}()，但 import 列表里没有它`);
+      missingImports++;
+    }
+  }
+}
+if (missingImports === 0) ok('dom.js 辅助函数导入检查完成');
 
 // 3) HTML 引用的本地资源必须存在，且不允许外链
 for (const file of htmlFiles) {

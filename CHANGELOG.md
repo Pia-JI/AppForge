@@ -27,7 +27,13 @@
 - Authenticode 签名会把证书块追加到文件末尾，旧启动器只读最后 16 字节，签名后可能报“单文件包已损坏”。启动器现在会解析 PE `Security` 目录，跳过证书块定位 payload 尾标记，并带 64KB 反向扫描兜底。
 - `scripts/sign.ps1 -CreateSelfSigned` 会自动跳过时间戳，断网也能完成本机签名；自签名仍只在本机可信，正式分发需 OV/EV 证书。
 
-**④ 回归**
+**④ 设置页崩溃：formatBytes is not defined**
+
+- 根因：`settings.js` 的回收站列表调用了 `formatBytes()`，但 `import` 列表里漏了它。回收站为空时不会执行到这一行，所以平时设置页正常；一旦有删除过的应用，整页就报「加载失败：formatBytes is not defined」。
+- 修复：补齐 `formatBytes` 导入；`scripts/check-ui.mjs` 新增「dom.js 辅助函数使用必须导入」的符号级检查，防止同类运行时 ReferenceError 再次漏过静态检查。
+- 回归：在测试数据中放入 2 条回收站记录后运行 `--ui-diag`，设置页 8 个面板、19 个按钮，`errors=[]`；便携包内的 exe 同样验证通过；单文件 `--selftest` 73/73。
+
+**⑤ 回归**
 
 - Release 构建 0 警告 / 0 错误，源码自检 **73/73**；`build.ps1 -Test` 现已正确转发退出码并完整输出测试结果，脚本化回归不会假通过。
 - Mock 双场景回归：A（每次 done 必须核对，文字仍称未完成时拒绝收尾）第 4 轮 done 被拦、第 5 轮确认完整后保存；B（复杂需求）第 40 轮预算自动延长到 56，第 50 轮 done 触发核对、第 51 轮保存，日志无「达到最长轮次」分支。
