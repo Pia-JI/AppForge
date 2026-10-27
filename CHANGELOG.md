@@ -29,9 +29,9 @@
 
 **④ 设置页崩溃：formatBytes is not defined**
 
-- 根因：`settings.js` 的回收站列表调用了 `formatBytes()`，但 `import` 列表里漏了它。回收站为空时不会执行到这一行，所以平时设置页正常；一旦有删除过的应用，整页就报「加载失败：formatBytes is not defined」。
-- 修复：补齐 `formatBytes` 导入；`scripts/check-ui.mjs` 新增「dom.js 辅助函数使用必须导入」的符号级检查，防止同类运行时 ReferenceError 再次漏过静态检查。
-- 回归：在测试数据中放入 2 条回收站记录后运行 `--ui-diag`，设置页 8 个面板、19 个按钮，`errors=[]`；便携包内的 exe 同样验证通过；单文件 `--selftest` 73/73。
+- 根因有两层：① `settings.js` 的回收站列表调用了 `formatBytes()`，但 `import` 列表里漏了它；回收站为空时不会执行到这一行，所以平时设置页正常，一旦有删除过的应用就整页报错。② 发布版把内置 UI 解包到 `ui\ui-<版本>`，只要 `index.html` 存在就直接复用，不校验内容；版本号没变时，新 exe 仍会加载旧 `settings.js`。
+- 修复：补齐 `formatBytes` 导入；`scripts/check-ui.mjs` 新增「dom.js 辅助函数使用必须导入」的符号级检查；UI 缓存目录改为 `ui-<版本>-<内容 SHA256 前 12 位>`，任何 JS/CSS/HTML 变化都会自动换新目录，并删除旧方案目录；UI 指纹变化时启动会调用 `Network.clearBrowserCache` 清空 WebView2 缓存，避免 URL 不变时继续命中旧 JS。
+- 回归：模拟「旧 `ui-1.0.9.0` 缓存已存在 + 回收站有 2 条记录」运行 `--ui-diag`，设置页 8 个面板、`errors=[]`，日志出现「UI 内容已更新，已清空 WebView2 缓存」，旧缓存目录被废弃、新目录中的 `settings.js` 为 20844 字节；便携包同样验证通过；单文件 `--selftest` 73/73。
 
 **⑤ 回归**
 

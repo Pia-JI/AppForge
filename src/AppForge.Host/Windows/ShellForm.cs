@@ -1,4 +1,4 @@
-﻿﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -308,6 +308,18 @@ namespace AppForge.Host.Windows
                 var core = _webView.CoreWebView2;
                 var shellFolder = _assets.EnsureFolder(_ws);
                 VirtualHosts.MapShell(core, shellFolder);
+                if (_assets.ShouldClearWebCache(_ws))
+                {
+                    try
+                    {
+                        await core.CallDevToolsProtocolMethodAsync("Network.clearBrowserCache", "{}");
+                        _log.Info("UI 内容已更新，已清空 WebView2 缓存");
+                    }
+                    catch (Exception cacheEx)
+                    {
+                        _log.Warn("清空 WebView2 缓存失败：" + cacheEx.Message);
+                    }
+                }
 
                 core.Settings.AreDevToolsEnabled = true;   // Shell 保留（便于排错）
                 core.Settings.AreDefaultContextMenusEnabled = true;
